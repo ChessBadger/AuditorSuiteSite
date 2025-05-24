@@ -1,0 +1,204 @@
+:root {
+  --primary: #4f46e5;
+  --accent: #6366f1;
+  --light: #eef2ff;
+  --bg: #ffffff;
+  --text: #1f2937;
+  --border: #e5e7eb;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Inter", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+h1 {
+  font-size: 1.75rem;
+  text-align: center;
+  margin: 1rem 0;
+}
+
+.view-toggle {
+  text-align: center;
+  margin-bottom: 0.75rem;
+}
+.view-toggle button {
+  margin: 0 0.25rem;
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  border-radius: 4px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+}
+.view-toggle button.active {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+}
+
+.container {
+  display: flex;
+  max-width: 1100px;
+  height: calc(100vh - 4rem);
+  margin: 0 auto 2rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+}
+
+.sidebar {
+  width: 240px;
+  background: var(--light);
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+}
+.sidebar ul {
+  list-style: none;
+  margin: 0;
+  padding: 0.5rem;
+}
+.sidebar li {
+  margin: 0.25rem 0;
+}
+.sidebar button {
+  width: 100%;
+  padding: 0.5rem;
+  background: none;
+  border: none;
+  text-align: left;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+.sidebar button:hover,
+.sidebar button.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.content {
+  flex: 1;
+  padding: 1rem;
+  overflow-y: auto;
+}
+.placeholder {
+  color: var(--text);
+  opacity: 0.7;
+}
+
+/* List of locations under an employee */
+.record-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.record-list li {
+  margin: 0.25rem 0;
+}
+.record-list li button {
+  width: 100%;
+  padding: 0.5rem;
+  background: none;
+  border: none;
+  text-align: left;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+.record-list li button:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* Header before the table */
+.record-header {
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin-bottom: 0.75rem;
+}
+
+/* The table itself */
+.record-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.record-table th,
+.record-table td {
+  padding: 0.5rem;
+  border-bottom: 1px solid var(--border);
+}
+.record-table th {
+  background: var(--accent);
+  color: #fff;
+  position: sticky;
+  top: 0;
+  text-align: left;
+}
+.record-total-row td {
+  font-weight: 600;
+  border-top: 2px solid var(--border);
+}
+
+/* ↑ keep everything you had before here ↑ */
+
+/* Touch‐friendly inputs in table cells */
+.record-table input {
+  width: 100%;
+  padding: 0.5rem;
+  font-size: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-sizing: border-box;
+}
+
+/* Increase default row height and font size for tablet */
+.record-table th,
+.record-table td {
+  padding: 0.75rem;
+  font-size: 1rem;
+}
+
+/* Sticky footer for total row */
+.record-total-row {
+  background: var(--light);
+  position: sticky;
+  bottom: 0;
+}
+
+/* Ensure table scrolls within container */
+.content {
+  position: relative;
+}
+.record-table {
+  display: block;
+  width: 100%;
+  overflow-x: auto;
+}
+
+/* “Mark Complete” button styling */
+.complete-btn {
+  display: inline-block;
+  margin-bottom: 1rem;
+  padding: 0.5rem 1rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #fff;
+  background: var(--accent);
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+/* on tablet: ensure the button is easy to tap */
+.complete-btn:hover {
+  opacity: 0.9;
+}
