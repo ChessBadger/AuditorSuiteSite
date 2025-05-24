@@ -1,29 +1,69 @@
+/*------------- Variables -------------*/
 :root {
-  --primary: #4f46e5;
-  --accent: #6366f1;
-  --light: #eef2ff;
+  /* Primary “brand” red */
+  --primary: rgba(153, 0, 0, 1);
+  --primary-hover: rgba(153, 0, 0, 0.85);
+
+  /* Neutral accents */
+  --light-bg: #f9f9f9;
   --bg: #ffffff;
   --text: #1f2937;
   --border: #e5e7eb;
+
+  /* Table zebra stripe */
+  --zebra: #f4f4f4;
 }
 
+/*------------- Base & Layout -------------*/
 * {
   box-sizing: border-box;
 }
-
 body {
   margin: 0;
+  padding: 0.25rem;
   font-family: "Inter", sans-serif;
   background: var(--bg);
   color: var(--text);
 }
-
 h1 {
   font-size: 1.75rem;
   text-align: center;
   margin: 1rem 0;
 }
 
+/* container + sidebar toggle */
+.container {
+  display: flex;
+  width: 100%;
+  height: calc(100vh - 4rem);
+  margin: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+  transition: width 0.2s ease;
+}
+.sidebar-toggle {
+  position: absolute;
+  top: 1rem;
+  left: 1rem;
+  background: var(--primary);
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: 0.5rem;
+  font-size: 1.25rem;
+  cursor: pointer;
+  z-index: 5;
+}
+.container.collapsed .sidebar {
+  width: 0;
+  overflow: hidden;
+}
+.container.collapsed .content {
+  flex: 1 1 100%;
+}
+
+/*------------- View Toggle -------------*/
 .view-toggle {
   text-align: center;
   margin-bottom: 0.75rem;
@@ -44,30 +84,20 @@ h1 {
   border-color: var(--primary);
 }
 
-.container {
-  display: flex;
-  max-width: none;
-  height: calc(100vh - 4rem);
-  margin: 0 auto 2rem;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  overflow: hidden;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
-}
-
+/*------------- Sidebar -------------*/
 .sidebar {
   width: 240px;
-  background: var(--light);
+  background: var(--light-bg);
   border-right: 1px solid var(--border);
   overflow-y: auto;
 }
 .sidebar ul {
   list-style: none;
-  margin: 0;
   padding: 0.5rem;
+  margin: 0;
 }
-.sidebar li {
-  margin: 0.25rem 0;
+.sidebar li + li {
+  margin-top: 0.25rem;
 }
 .sidebar button {
   width: 100%;
@@ -81,337 +111,136 @@ h1 {
 }
 .sidebar button:hover,
 .sidebar button.active {
-  background: var(--accent);
+  background: var(--primary-hover);
   color: #fff;
 }
 
-.content {
-  flex: 1;
-  padding: 1rem;
-  overflow-y: auto;
-}
-.placeholder {
-  color: var(--text);
-  opacity: 0.7;
-}
-
-/* List of locations under an employee */
+/*------------- “By Employee” → Locations list -------------*/
 .record-list {
   list-style: none;
-  margin: 0;
   padding: 0;
+  margin: 0.5rem 0;
 }
-.record-list li {
-  margin: 0.25rem 0;
+.record-list li + li {
+  margin-top: 0.5rem;
 }
-.record-list li button {
-  width: 100%;
-  padding: 0.5rem;
-  background: none;
-  border: none;
-  text-align: left;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: background 0.2s, color 0.2s;
-}
-.record-list li button:hover {
-  background: var(--accent);
-  color: #fff;
-}
-
-/* Header before the table */
-.record-header {
-  font-size: 1.125rem;
-  font-weight: 600;
-  margin-bottom: 0.75rem;
-}
-
-/* The table itself */
-.record-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-.record-table th,
-.record-table td {
-  padding: 0.5rem;
-  border-bottom: 1px solid var(--border);
-}
-.record-table th {
-  background: var(--accent);
-  color: #fff;
-  position: sticky;
-  top: 0;
-  text-align: left;
-}
-.record-total-row td {
-  font-weight: 600;
-  border-top: 2px solid var(--border);
-}
-
-/* ↑ keep everything you had before here ↑ */
-
-/* Touch‐friendly inputs in table cells */
-.record-table input {
-  padding: 0.5rem;
-  font-size: 1rem;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  box-sizing: border-box;
-}
-
-/* Increase default row height and font size for tablet */
-.record-table th,
-.record-table td {
-  padding: 0.75rem;
-  font-size: 1rem;
-}
-
-/* Sticky footer for total row */
-.record-total-row {
-  background: var(--light);
-  position: sticky;
-  bottom: 0;
-}
-
-/* Ensure table scrolls within container */
-.content {
-  position: relative;
-}
-.record-table {
+.record-list button {
   display: block;
   width: 100%;
-  overflow-x: auto;
-}
-
-/* “Mark Complete” button styling */
-.complete-btn {
-  display: inline-block;
-  margin-bottom: 1rem;
-  padding: 0.5rem 1rem;
-  font-size: 1rem;
-  font-weight: 600;
-  color: #fff;
-  background: var(--accent);
-  border: none;
+  padding: 0.75rem 1rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-left-width: 4px;
+  border-left-color: transparent;
   border-radius: 4px;
+  text-align: left;
+  font-size: 1rem;
   cursor: pointer;
+  transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
+}
+.record-list button:hover {
+  background: var(--light-bg);
+  border-left-color: var(--primary);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+}
+.record-list button.active {
+  background: var(--primary);
+  color: #fff;
+  border-left-color: var(--primary);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
 }
 
-/* on tablet: ensure the button is easy to tap */
-.complete-btn:hover {
-  opacity: 0.9;
-}
-
-/* —————————————————————————— */
-/* TABLE CONTAINER & WRAPPER    */
-/* —————————————————————————— */
+/*------------- Main Content (records, table, etc.) -------------*/
 .content {
-  padding: 0; /* edge‑to‑edge on tablet */
+  flex: 1;
   display: flex;
   flex-direction: column;
-  height: 100%;
   overflow: hidden;
 }
-
-/* make the table area scrollable */
-.record-container {
+#record-container {
   flex: 1;
+  padding: 0.5rem;
   overflow: auto;
-  padding: 0.5rem; /* some breathing room */
 }
 
-/* hide native scrollbars on WebKit (optional) */
-.record-container::-webkit-scrollbar {
-  height: 0.5rem;
-}
-.record-container::-webkit-scrollbar-track {
-  background: transparent;
-}
-.record-container::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.2);
-  border-radius: 4px;
-}
-
-/* —————————————————————————— */
-/* STICKY BUTTON & HEADER       */
-/* —————————————————————————— */
-/* keep the “Mark Complete” & header always in view */
-.complete-btn,
-.record-header {
+/* You can drop all the duplicate table/input styles
+     and keep just the essential table rules below. */
+.record-header,
+.complete-btn {
   position: sticky;
   top: 0;
   z-index: 2;
   background: var(--bg);
   padding: 0.75rem 1rem;
-  margin: 0; /* flush with edges */
   border-bottom: 1px solid var(--border);
 }
-
-/* button styling bump */
 .complete-btn {
   font-size: 1.1rem;
-  padding: 0.75rem 1.25rem;
   margin-bottom: 0.5rem;
+  color: #fff;
+  background: var(--primary);
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: opacity 0.2s;
 }
-
-/* header text bold & larger */
-.record-header {
-  font-weight: 600;
-  font-size: 1.25rem;
+.complete-btn:hover {
+  opacity: 0.9;
 }
-
-/* —————————————————————————— */
-/* TABLE STYLING                */
-/* —————————————————————————— */
 .record-table {
   width: 100%;
-  min-width: 800px; /* ensure horizontal scroll if narrow */
   border-collapse: separate;
   border-spacing: 0;
+  min-width: 800px;
+  overflow-x: auto;
+  table-layout: auto;
+}
+
+.record-table td input[type="text"],
+.record-table td input[type="number"] {
+  box-sizing: border-box; /* include padding in the width calculation */
+  width: auto; /* size to content */
+  min-width: 4ch; /* at least ~4 characters wide */
+  max-width: 100%; /* never exceed its cell */
 }
 
 .record-table th,
 .record-table td {
   padding: 0.75rem 1rem;
-  text-align: center; /* center‑align for tablet readability */
-  white-space: nowrap; /* prevent wrapping */
-  font-size: 1rem; /* slightly larger text */
+  text-align: center;
+  white-space: nowrap;
+  font-size: 1rem;
+  border-bottom: 1px solid var(--border);
 }
-
-/* header row */
 .record-table th {
-  background: var(--accent);
+  background: var(--primary);
   color: #fff;
   position: sticky;
-  top: calc((0.75rem + 1rem) * 2); /* below the fixed button & header */
+  top: calc(0.75rem + 1rem); /* below btn+header */
   z-index: 1;
 }
-
-/* zebra striping */
 .record-table tbody tr:nth-child(even) {
-  background: #f9fafb;
+  background: var(--zebra);
 }
-
-/* inputs in cells */
-.record-table input {
-  width: 100%;
-  padding: 0.5rem;
-  font-size: 1rem;
-  text-align: center;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-}
-
-/* grand total row always visible at bottom */
 .record-total-row {
-  background: var(--light);
+  background: var(--light-bg);
   font-weight: 600;
   position: sticky;
   bottom: 0;
 }
 
-/* —————————————————————————— */
-/* RESPONSIVE & TOUCH‑FRIENDLY   */
-/* —————————————————————————— */
-@media (max-width: 900px) {
-  /* narrow tablets: reduce min‑width so less horizontal scroll */
-  .record-table {
-    min-width: 700px;
-  }
+.record-header {
+  font-weight: bold;
 }
 
-@media (max-width: 700px) {
-  .record-table {
-    min-width: 600px;
-  }
-}
+.record-table td input[type="text"],
+.record-table td input[type="number"] {
+  box-sizing: border-box;
+  width: auto;
+  min-width: 4ch;
+  max-width: 100%;
 
-/* make non‑SKU inputs full width */
-.record-table input:not(.sku-input) {
-  width: 100%;
-}
-
-/* ensure SKU inputs don’t wrap */
-.record-table input.sku-input {
-  white-space: nowrap;
-  overflow-x: auto; /* allows scrolling if somebody pastes a massive SKU */
-}
-
-/* 1) Your HTML has id="record-container", not class="record-container" */
-#record-container {
-  flex: 1;
-  overflow: auto;
-  padding: 0.5rem;
-}
-
-/* 2) SKU inputs should size to their content (via the size="" attribute) */
-.record-table input.sku-input {
-  width: auto; /* ignore the 100% rule */
-  min-width: 3ch; /* always at least a few chars wide */
-  font-family: monospace; /* optional, nicer for codes */
-  white-space: nowrap;
-  overflow-x: auto;
-}
-
-/* 3) All other inputs stay full‑width */
-.record-table input:not(.sku-input) {
-  width: 100% !important;
-}
-
-/* Override the fixed max‑width and centering */
-.container {
-  max-width: none; /* let it fill the viewport width */
-  width: 100%; /* ensure full width */
-  margin: 0.5rem 0.5rem 2rem; /* small vertical/horizontal margins */
-  border-radius: 4px; /* keep the rounded corners if you like */
-}
-
-/* Reduce the body padding so the container sits closer to the edges */
-body {
-  padding: 0 0.25rem;
-}
-
-/* If you want even less side‑margin on small screens: */
-@media (max-width: 800px) {
-  .container {
-    margin: 0.25rem 0.25rem 1rem;
-  }
-  body {
-    padding: 0;
-  }
-}
-
-/* Sidebar toggle button */
-.sidebar-toggle {
-  position: absolute;
-  top: 1rem;
-  left: 1rem;
-  background: var(--primary);
-  color: #fff;
-  border: none;
-  border-radius: 4px;
-  padding: 0.5rem;
-  font-size: 1.25rem;
-  cursor: pointer;
-  z-index: 5;
-}
-
-/* When .collapsed is on the container, shrink the sidebar */
-.container.collapsed .sidebar {
-  width: 0;
-  min-width: 0;
-  padding: 0;
-  border: none;
-  overflow: hidden;
-}
-
-/* And let content take full space */
-.container.collapsed .content {
-  flex: 1 1 100%;
-}
-
-/* Smooth transition */
-.sidebar,
-.content {
-  transition: width 0.2s ease, flex 0.2s ease, padding 0.2s ease;
+  /* match the rest of your fields: */
+  font-size: 1rem; /* or: font-size: inherit; */
+  line-height: 1.5; /* optional, to match your other controls */
 }
