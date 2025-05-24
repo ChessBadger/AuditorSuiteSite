@@ -87,13 +87,13 @@ app.get("/api/locations", (req, res) => {
   });
 });
 
-// ——— fetch records filtered by employee or location (only from enabled) ———
+// ——— fetch records filtered by employee, location, or SKU (only from enabled) ———
 app.get("/api/records", (req, res) => {
-  const { employee, location } = req.query;
-  if (!employee && !location) {
+  const { employee, location, sku } = req.query;
+  if (!employee && !location && !sku) {
     return res
       .status(400)
-      .json({ error: "Must specify ?employee=… or ?location=…" });
+      .json({ error: "Must specify ?employee=… or ?location=… or ?sku=…" });
   }
 
   loadEnabledReports((err, reps) => {
@@ -104,7 +104,8 @@ app.get("/api/records", (req, res) => {
       r.data.records?.forEach((rec) => {
         if (
           (employee && rec.employee_name === employee) ||
-          (location && `${rec.LOC_NUM} - ${rec.loc_desc}` === location)
+          (location && `${rec.LOC_NUM} - ${rec.loc_desc}` === location) ||
+          (sku && String(rec.SKU) === String(sku))
         ) {
           matches.push(Object.assign({ file: r.file }, rec));
         }

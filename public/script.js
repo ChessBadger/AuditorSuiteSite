@@ -6,6 +6,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const recContainer = document.getElementById("record-container");
 
   let currentView = "employee";
+  const btnSKU = document.getElementById("btn-sku");
+  const skuInput = document.getElementById("sku-input");
 
   const currencyFormatter = new Intl.NumberFormat("en-US", {
     style: "currency",
@@ -30,6 +32,55 @@ document.addEventListener("DOMContentLoaded", () => {
   if (localStorage.getItem("sidebarCollapsed") === "true") {
     containerEl.classList.add("collapsed");
   }
+
+  btnSKU.addEventListener("click", () => {
+    currentView = "sku";
+    // clear active states on the other buttons
+    [btnEmp, btnLoc].forEach((b) => b.classList.remove("active"));
+    btnSKU.classList.add("active");
+    recContainer.innerHTML =
+      '<p class="placeholder">Enter a SKU and click Search</p>';
+  });
+
+  function searchBySKU() {
+    const sku = skuInput.value.trim();
+    if (!sku) return alert("Please enter a SKU.");
+    skuInput.value = "";
+    recContainer.innerHTML = '<p class="placeholder">Searching for SKU…</p>';
+
+    fetch(`/api/records?sku=${encodeURIComponent(sku)}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (!data.length) {
+          recContainer.innerHTML =
+            '<p class="placeholder">No records found for that SKU</p>';
+          return;
+        }
+        // extract unique locations just like in loadEmployeeLocations
+        const locations = Array.from(
+          new Set(data.map((r) => `${r.LOC_NUM} - ${r.loc_desc}`))
+        );
+        recContainer.innerHTML = "";
+        const ul = document.createElement("ul");
+        ul.classList.add("record-list");
+        locations.forEach((loc) => {
+          const li = document.createElement("li");
+          const btn = document.createElement("button");
+          btn.textContent = loc;
+          btn.addEventListener("click", () => showLocationTable(loc));
+          li.appendChild(btn);
+          ul.appendChild(li);
+        });
+        recContainer.appendChild(ul);
+      })
+      .catch(() => {
+        recContainer.innerHTML =
+          '<p class="placeholder">Error searching for SKU</p>';
+      });
+  }
+
+  // hook up the SKU search button
+  btnSKU.addEventListener("click", searchBySKU);
 
   // Toggle on click
   sidebarToggle.addEventListener("click", () => {
