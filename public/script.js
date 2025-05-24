@@ -113,7 +113,9 @@ document.addEventListener("DOMContentLoaded", () => {
           const btn = document.createElement("button");
           btn.textContent = item;
           btn.addEventListener("click", () => {
-            // highlight
+            if (currentView === "sku") {
+              setView("employee");
+            }
             listEl
               .querySelectorAll("button")
               .forEach((b) => b.classList.remove("active"));
