@@ -244,3 +244,26 @@ h1 {
   font-size: 1rem; /* or: font-size: inherit; */
   line-height: 1.5; /* optional, to match your other controls */
 }
+
+/* ===== New for delete/added rows ===== */
+.record-table th.delete-col,
+.record-table td.delete-col {
+  width: 3rem;
+}
+
+.delete-btn {
+  background: transparent;
+  border: none;
+  font-size: 1.25rem;
+  cursor: pointer;
+  color: var(--primary-hover);
+}
+
+.delete-btn.deleted {
+  color: #999;
+}
+
+.record-table tr.deleted {
+  opacity: 0.5;
+  text-decoration: line-through;
+}

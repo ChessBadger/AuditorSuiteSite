@@ -121,13 +121,17 @@ document.addEventListener("DOMContentLoaded", () => {
     fetch(`/api/records?location=${encodeURIComponent(locString)}`)
       .then((r) => r.json())
       .then((data) => {
+        data.forEach((r) => {
+          r.deleted = false;
+          r.isNew = false;
+        });
+
         if (!data.length) {
           recContainer.innerHTML =
             '<p class="placeholder">No records found</p>';
           return;
         }
 
-        // 1) Determine which columns actually have data
         const visibleCols = ALL_COLUMNS.filter((col) =>
           data.some((row) => {
             const v = row[col.key];
@@ -135,7 +139,6 @@ document.addEventListener("DOMContentLoaded", () => {
           })
         );
 
-        // 2) Detect visibility and editability rules
         const skuVisible = visibleCols.some((c) => c.key === "SKU");
         const descVisible = visibleCols.some((c) => c.key === "DESCRIPTIO");
         const catEditable =
@@ -145,22 +148,69 @@ document.addEventListener("DOMContentLoaded", () => {
         const priceEditable =
           !skuVisible && visibleCols.some((c) => c.key === "PRICE");
 
-        // 3) Grab the source filename for “complete”
         const fileName = data[0].file;
-
-        // 4) Clear container & add “Mark Complete” button
         recContainer.innerHTML = "";
+
+        const btnGroup = document.createElement("div");
+        btnGroup.classList.add("record-header");
+
+        // Add New Record at top
+        const addBtn = document.createElement("button");
+        addBtn.textContent = "Add Record";
+        addBtn.classList.add("complete-btn");
+        addBtn.style.marginRight = "1rem";
+        addBtn.addEventListener("click", () => {
+          const newRec = {};
+          ALL_COLUMNS.forEach((c) => (newRec[c.key] = ""));
+          newRec.EXT_QTY = 0;
+          newRec.PRICE = 0;
+          newRec.deleted = false;
+          newRec.isNew = true;
+          data.unshift(newRec); // insert at top
+          rebuildTable();
+          recContainer
+            .querySelector("table")
+            .scrollIntoView({ behavior: "smooth" });
+        });
+        btnGroup.appendChild(addBtn);
+
         const completeBtn = document.createElement("button");
         completeBtn.textContent = "Mark Location Complete";
         completeBtn.classList.add("complete-btn");
         completeBtn.addEventListener("click", () => {
+          // validate all inputs
+          const tableEl = recContainer.querySelector("table");
+          const allInputs = tableEl ? tableEl.querySelectorAll("input") : [];
+          for (let inp of allInputs) {
+            if (!inp.checkValidity()) {
+              inp.reportValidity();
+              return;
+            }
+            if (inp.value.trim() === "") {
+              alert("All fields must be filled.");
+              inp.focus();
+              return;
+            }
+          }
+
           if (!confirm("Are you sure you want to mark this location complete?"))
             return;
-          console.log("▶ Sending complete payload:", { records: data });
+
+          // filter out records that were added and then deleted
+          const toSend = data
+            .filter((r) => !(r.isNew && r.deleted))
+            .map((r) => ({
+              ...r,
+              deleted: r.deleted || undefined,
+              isNew: r.isNew || undefined,
+            }));
+
+          const payload = { records: toSend };
+          console.log("▶ Sending complete payload:", payload);
           fetch(`/api/reports/${encodeURIComponent(fileName)}/complete`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ records: data }),
+            body: JSON.stringify(payload),
           })
             .then((r) => r.json())
             .then((resp) => {
@@ -173,147 +223,151 @@ document.addEventListener("DOMContentLoaded", () => {
             })
             .catch(() => alert("Network error"));
         });
-        recContainer.appendChild(completeBtn);
+        btnGroup.appendChild(completeBtn);
+        recContainer.appendChild(btnGroup);
 
-        // 5) Header with Area & Location
         const header = document.createElement("div");
         header.classList.add("record-header");
         header.textContent = `Area: ${data[0].area_desc} | Location: ${data[0].loc_desc}`;
         recContainer.appendChild(header);
 
-        // 6) Build the table
-        const table = document.createElement("table");
-        table.classList.add("record-table");
+        let table, tbody, totalCell;
 
-        // 6a) THEAD
-        const thead = document.createElement("thead");
-        const headRow = document.createElement("tr");
-        visibleCols.forEach((col) => {
-          const th = document.createElement("th");
-          th.textContent = col.label;
-          headRow.appendChild(th);
-        });
-        thead.appendChild(headRow);
-        table.appendChild(thead);
+        function rebuildTable() {
+          if (table) table.remove();
 
-        // 6b) TBODY
-        const tbody = document.createElement("tbody");
-        let grandTotal = 0;
-        let totalCell = null;
+          table = document.createElement("table");
+          table.classList.add("record-table");
 
-        data.forEach((rowData, rowIdx) => {
-          const tr = document.createElement("tr");
-
+          const thead = document.createElement("thead");
+          const headRow = document.createElement("tr");
           visibleCols.forEach((col) => {
-            const td = document.createElement("td");
+            const th = document.createElement("th");
+            th.textContent = col.label;
+            headRow.appendChild(th);
+          });
+          const thDel = document.createElement("th");
+          thDel.textContent = "🗑";
+          thDel.classList.add("delete-col");
+          headRow.appendChild(thDel);
 
-            // Editable SKU
-            if (col.key === "SKU") {
-              const inp = document.createElement("input");
-              inp.type = "text";
-              inp.value = rowData.SKU || "";
-              inp.classList.add("sku-input"); // mark it
-              // make the box exactly as wide as the content (plus a little padding)
-              const len = String(inp.value).length || 1;
-              inp.size = len + 2; // e.g. 8 chars → size="10"
-              // keep text on one line
-              inp.style.whiteSpace = "nowrap";
-              inp.addEventListener("change", () => {
-                rowData.SKU = inp.value;
-                // if the user edits it, re‑size the box
-                const newLen = String(inp.value).length || 1;
-                inp.size = newLen + 2;
-              });
-              td.appendChild(inp);
+          thead.appendChild(headRow);
+          table.appendChild(thead);
 
-              // Editable Qty
-            } else if (col.key === "EXT_QTY") {
-              const inp = document.createElement("input");
-              inp.type = "number";
-              inp.min = "0";
-              inp.step = "1";
-              inp.value = rowData.EXT_QTY || 0;
-              inp.addEventListener("input", () => {
-                rowData.EXT_QTY = parseInt(inp.value) || 0;
-                updateExtended(rowIdx);
-              });
-              td.appendChild(inp);
+          tbody = document.createElement("tbody");
+          let grandTotal = 0;
 
-              // Editable Price if SKU hidden
-            } else if (col.key === "PRICE" && priceEditable) {
-              const inp = document.createElement("input");
-              inp.type = "number";
-              inp.min = "0";
-              inp.step = "0.01";
-              inp.value = parseFloat(rowData.PRICE || 0).toFixed(2);
-              inp.addEventListener("input", () => {
-                rowData.PRICE = parseFloat(inp.value) || 0;
-                updateExtended(rowIdx);
-              });
-              td.appendChild(inp);
+          data.forEach((rowData, rowIdx) => {
+            const tr = document.createElement("tr");
+            if (rowData.deleted) tr.classList.add("deleted");
 
-              // Editable Category when SKU & Description hidden
-            } else if (col.key === "CAT_NUM" && catEditable) {
-              const inp = document.createElement("input");
-              inp.type = "text";
-              inp.value = rowData.CAT_NUM || "";
-              inp.addEventListener("change", () => {
-                rowData.CAT_NUM = inp.value;
-              });
-              td.appendChild(inp);
+            visibleCols.forEach((col) => {
+              const td = document.createElement("td");
+              if (col.key === "SKU") {
+                const inp = document.createElement("input");
+                inp.type = "number";
+                inp.required = true;
+                inp.value = rowData.SKU || "";
+                inp.style.whiteSpace = "nowrap";
+                inp.addEventListener("change", () => {
+                  rowData.SKU = inp.value;
+                });
+                td.appendChild(inp);
+              } else if (col.key === "EXT_QTY") {
+                const inp = document.createElement("input");
+                inp.type = "number";
+                inp.min = "0";
+                inp.step = "1";
+                inp.required = true;
+                inp.value = rowData.EXT_QTY || 0;
+                inp.addEventListener("input", () => {
+                  rowData.EXT_QTY = parseInt(inp.value) || 0;
+                  updateExtended(rowIdx);
+                });
+                td.appendChild(inp);
+              } else if (col.key === "PRICE" && priceEditable) {
+                const inp = document.createElement("input");
+                inp.type = "number";
+                inp.min = "0";
+                inp.step = "0.01";
+                inp.required = true;
+                inp.value = parseFloat(rowData.PRICE || 0).toFixed(2);
+                inp.addEventListener("input", () => {
+                  rowData.PRICE = parseFloat(inp.value) || 0;
+                  updateExtended(rowIdx);
+                });
+                td.appendChild(inp);
+              } else if (col.key === "CAT_NUM" && catEditable) {
+                const inp = document.createElement("input");
+                inp.type = "number";
+                inp.required = true;
+                inp.value = rowData.CAT_NUM || "";
+                inp.addEventListener("change", () => {
+                  rowData.CAT_NUM = inp.value;
+                });
+                td.appendChild(inp);
+              } else if (col.key === "EXT_PRICE") {
+                const extVal = rowData.EXT_QTY * rowData.PRICE || 0;
+                td.textContent = currencyFormatter.format(extVal);
+                grandTotal += extVal;
+              } else {
+                td.textContent = rowData[col.key] ?? "";
+              }
 
-              // Computed Extended price
-            } else if (col.key === "EXT_PRICE") {
-              const extVal = rowData.EXT_QTY * rowData.PRICE || 0;
-              td.textContent = currencyFormatter.format(extVal);
-              grandTotal += extVal;
+              tr.appendChild(td);
+            });
 
-              // Static cell
-            } else {
-              td.textContent = rowData[col.key] ?? "";
-            }
+            const tdDel = document.createElement("td");
+            tdDel.classList.add("delete-col");
+            const delBtn = document.createElement("button");
+            delBtn.innerHTML = "×";
+            delBtn.classList.add("delete-btn");
+            if (rowData.deleted) delBtn.classList.add("deleted");
+            delBtn.addEventListener("click", () => {
+              rowData.deleted = !rowData.deleted;
+              if (rowData.deleted) {
+                tr.classList.add("deleted");
+                delBtn.classList.add("deleted");
+              } else {
+                tr.classList.remove("deleted");
+                delBtn.classList.remove("deleted");
+              }
+            });
+            tdDel.appendChild(delBtn);
+            tr.appendChild(tdDel);
 
-            tr.appendChild(td);
+            tbody.appendChild(tr);
           });
 
-          tbody.appendChild(tr);
-        });
+          if (visibleCols.some((c) => c.key === "EXT_PRICE")) {
+            const trTotal = document.createElement("tr");
+            trTotal.classList.add("record-total-row");
+            const tdLabel = document.createElement("td");
+            tdLabel.textContent = "Grand Total";
+            tdLabel.colSpan = visibleCols.length;
+            trTotal.appendChild(tdLabel);
+            totalCell = document.createElement("td");
+            totalCell.textContent = currencyFormatter.format(grandTotal);
+            trTotal.appendChild(totalCell);
+            tbody.appendChild(trTotal);
+          }
 
-        // 6c) Grand Total row (if EXT_PRICE shown)
-        if (visibleCols.some((c) => c.key === "EXT_PRICE")) {
-          const trTotal = document.createElement("tr");
-          trTotal.classList.add("record-total-row");
-
-          const tdLabel = document.createElement("td");
-          tdLabel.textContent = "Grand Total";
-          tdLabel.colSpan = visibleCols.length - 1;
-          trTotal.appendChild(tdLabel);
-
-          totalCell = document.createElement("td");
-          totalCell.textContent = currencyFormatter.format(grandTotal);
-          trTotal.appendChild(totalCell);
-
-          tbody.appendChild(trTotal);
+          table.appendChild(tbody);
+          recContainer.appendChild(table);
         }
 
-        table.appendChild(tbody);
-        recContainer.appendChild(table);
-
-        // 7) Helper to recalc a row’s Extended & the Grand Total
         function updateExtended(rowIdx) {
           const rd = data[rowIdx];
           const newExt = rd.EXT_QTY * rd.PRICE || 0;
-          const extColIndex = visibleCols.findIndex(
-            (c) => c.key === "EXT_PRICE"
-          );
-          const extCell =
-            tbody.querySelectorAll("tr")[rowIdx].children[extColIndex];
-          extCell.textContent = currencyFormatter.format(newExt);
-
+          const colIndex = visibleCols.findIndex((c) => c.key === "EXT_PRICE");
+          const cell = tbody.querySelectorAll("tr")[rowIdx].children[colIndex];
+          cell.textContent = currencyFormatter.format(newExt);
           let sum = 0;
           data.forEach((d) => (sum += d.EXT_QTY * d.PRICE || 0));
           if (totalCell) totalCell.textContent = currencyFormatter.format(sum);
         }
+
+        rebuildTable();
       })
       .catch(() => {
         recContainer.innerHTML =
