@@ -46,7 +46,7 @@ h1 {
 
 .container {
   display: flex;
-  max-width: 1100px;
+  max-width: none;
   height: calc(100vh - 4rem);
   margin: 0 auto 2rem;
   border: 1px solid var(--border);
@@ -152,7 +152,6 @@ h1 {
 
 /* Touch‐friendly inputs in table cells */
 .record-table input {
-  width: 100%;
   padding: 0.5rem;
   font-size: 1rem;
   border: 1px solid var(--border);
@@ -201,4 +200,218 @@ h1 {
 /* on tablet: ensure the button is easy to tap */
 .complete-btn:hover {
   opacity: 0.9;
+}
+
+/* —————————————————————————— */
+/* TABLE CONTAINER & WRAPPER    */
+/* —————————————————————————— */
+.content {
+  padding: 0; /* edge‑to‑edge on tablet */
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* make the table area scrollable */
+.record-container {
+  flex: 1;
+  overflow: auto;
+  padding: 0.5rem; /* some breathing room */
+}
+
+/* hide native scrollbars on WebKit (optional) */
+.record-container::-webkit-scrollbar {
+  height: 0.5rem;
+}
+.record-container::-webkit-scrollbar-track {
+  background: transparent;
+}
+.record-container::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+}
+
+/* —————————————————————————— */
+/* STICKY BUTTON & HEADER       */
+/* —————————————————————————— */
+/* keep the “Mark Complete” & header always in view */
+.complete-btn,
+.record-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--bg);
+  padding: 0.75rem 1rem;
+  margin: 0; /* flush with edges */
+  border-bottom: 1px solid var(--border);
+}
+
+/* button styling bump */
+.complete-btn {
+  font-size: 1.1rem;
+  padding: 0.75rem 1.25rem;
+  margin-bottom: 0.5rem;
+}
+
+/* header text bold & larger */
+.record-header {
+  font-weight: 600;
+  font-size: 1.25rem;
+}
+
+/* —————————————————————————— */
+/* TABLE STYLING                */
+/* —————————————————————————— */
+.record-table {
+  width: 100%;
+  min-width: 800px; /* ensure horizontal scroll if narrow */
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.record-table th,
+.record-table td {
+  padding: 0.75rem 1rem;
+  text-align: center; /* center‑align for tablet readability */
+  white-space: nowrap; /* prevent wrapping */
+  font-size: 1rem; /* slightly larger text */
+}
+
+/* header row */
+.record-table th {
+  background: var(--accent);
+  color: #fff;
+  position: sticky;
+  top: calc((0.75rem + 1rem) * 2); /* below the fixed button & header */
+  z-index: 1;
+}
+
+/* zebra striping */
+.record-table tbody tr:nth-child(even) {
+  background: #f9fafb;
+}
+
+/* inputs in cells */
+.record-table input {
+  width: 100%;
+  padding: 0.5rem;
+  font-size: 1rem;
+  text-align: center;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+/* grand total row always visible at bottom */
+.record-total-row {
+  background: var(--light);
+  font-weight: 600;
+  position: sticky;
+  bottom: 0;
+}
+
+/* —————————————————————————— */
+/* RESPONSIVE & TOUCH‑FRIENDLY   */
+/* —————————————————————————— */
+@media (max-width: 900px) {
+  /* narrow tablets: reduce min‑width so less horizontal scroll */
+  .record-table {
+    min-width: 700px;
+  }
+}
+
+@media (max-width: 700px) {
+  .record-table {
+    min-width: 600px;
+  }
+}
+
+/* make non‑SKU inputs full width */
+.record-table input:not(.sku-input) {
+  width: 100%;
+}
+
+/* ensure SKU inputs don’t wrap */
+.record-table input.sku-input {
+  white-space: nowrap;
+  overflow-x: auto; /* allows scrolling if somebody pastes a massive SKU */
+}
+
+/* 1) Your HTML has id="record-container", not class="record-container" */
+#record-container {
+  flex: 1;
+  overflow: auto;
+  padding: 0.5rem;
+}
+
+/* 2) SKU inputs should size to their content (via the size="" attribute) */
+.record-table input.sku-input {
+  width: auto; /* ignore the 100% rule */
+  min-width: 3ch; /* always at least a few chars wide */
+  font-family: monospace; /* optional, nicer for codes */
+  white-space: nowrap;
+  overflow-x: auto;
+}
+
+/* 3) All other inputs stay full‑width */
+.record-table input:not(.sku-input) {
+  width: 100% !important;
+}
+
+/* Override the fixed max‑width and centering */
+.container {
+  max-width: none; /* let it fill the viewport width */
+  width: 100%; /* ensure full width */
+  margin: 0.5rem 0.5rem 2rem; /* small vertical/horizontal margins */
+  border-radius: 4px; /* keep the rounded corners if you like */
+}
+
+/* Reduce the body padding so the container sits closer to the edges */
+body {
+  padding: 0 0.25rem;
+}
+
+/* If you want even less side‑margin on small screens: */
+@media (max-width: 800px) {
+  .container {
+    margin: 0.25rem 0.25rem 1rem;
+  }
+  body {
+    padding: 0;
+  }
+}
+
+/* Sidebar toggle button */
+.sidebar-toggle {
+  position: absolute;
+  top: 1rem;
+  left: 1rem;
+  background: var(--primary);
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: 0.5rem;
+  font-size: 1.25rem;
+  cursor: pointer;
+  z-index: 5;
+}
+
+/* When .collapsed is on the container, shrink the sidebar */
+.container.collapsed .sidebar {
+  width: 0;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  overflow: hidden;
+}
+
+/* And let content take full space */
+.container.collapsed .content {
+  flex: 1 1 100%;
+}
+
+/* Smooth transition */
+.sidebar,
+.content {
+  transition: width 0.2s ease, flex 0.2s ease, padding 0.2s ease;
 }

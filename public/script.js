@@ -7,15 +7,36 @@ document.addEventListener("DOMContentLoaded", () => {
 
   let currentView = "employee";
 
+  const currencyFormatter = new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+  });
+
   const ALL_COLUMNS = [
     { key: "RECORD", label: "Record" },
     { key: "SKU", label: "SKU" },
     { key: "DESCRIPTIO", label: "Description" }, // or 'DESCRIPTION' if that's the real key
-    { key: "cat_desc", label: "Category" },
+    { key: "CAT_NUM", label: "Category" },
     { key: "EXT_QTY", label: "Qty" },
     { key: "PRICE", label: "Price" },
     { key: "EXT_PRICE", label: "Total Price" },
   ];
+
+  // Sidebar show/hide
+  const sidebarToggle = document.getElementById("sidebar-toggle");
+  const containerEl = document.querySelector(".container");
+
+  // Read last state from localStorage (optional)
+  if (localStorage.getItem("sidebarCollapsed") === "true") {
+    containerEl.classList.add("collapsed");
+  }
+
+  // Toggle on click
+  sidebarToggle.addEventListener("click", () => {
+    containerEl.classList.toggle("collapsed");
+    const isCollapsed = containerEl.classList.contains("collapsed");
+    localStorage.setItem("sidebarCollapsed", isCollapsed);
+  });
 
   btnEmp.addEventListener("click", () => setView("employee"));
   btnLoc.addEventListener("click", () => setView("location"));
@@ -95,10 +116,8 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function showLocationTable(locString) {
-    // 1) Show loading state
     recContainer.innerHTML = '<p class="placeholder">Loading records…</p>';
 
-    // 2) Fetch records for this location
     fetch(`/api/records?location=${encodeURIComponent(locString)}`)
       .then((r) => r.json())
       .then((data) => {
@@ -108,7 +127,7 @@ document.addEventListener("DOMContentLoaded", () => {
           return;
         }
 
-        // 3) Determine which columns actually have data
+        // 1) Determine which columns actually have data
         const visibleCols = ALL_COLUMNS.filter((col) =>
           data.some((row) => {
             const v = row[col.key];
@@ -116,15 +135,20 @@ document.addEventListener("DOMContentLoaded", () => {
           })
         );
 
-        // 4) Decide editability rules
+        // 2) Detect visibility and editability rules
         const skuVisible = visibleCols.some((c) => c.key === "SKU");
+        const descVisible = visibleCols.some((c) => c.key === "DESCRIPTIO");
+        const catEditable =
+          !skuVisible &&
+          !descVisible &&
+          visibleCols.some((c) => c.key === "CAT_NUM");
         const priceEditable =
           !skuVisible && visibleCols.some((c) => c.key === "PRICE");
 
-        // 5) Grab the source JSON filename for “complete” API
+        // 3) Grab the source filename for “complete”
         const fileName = data[0].file;
 
-        // 6) Clear container & add “Mark Complete” button
+        // 4) Clear container & add “Mark Complete” button
         recContainer.innerHTML = "";
         const completeBtn = document.createElement("button");
         completeBtn.textContent = "Mark Location Complete";
@@ -132,10 +156,7 @@ document.addEventListener("DOMContentLoaded", () => {
         completeBtn.addEventListener("click", () => {
           if (!confirm("Are you sure you want to mark this location complete?"))
             return;
-
-          // LOG the payload
           console.log("▶ Sending complete payload:", { records: data });
-
           fetch(`/api/reports/${encodeURIComponent(fileName)}/complete`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -143,23 +164,28 @@ document.addEventListener("DOMContentLoaded", () => {
           })
             .then((r) => r.json())
             .then((resp) => {
-              /* … */
+              if (resp.success) {
+                alert("Location marked complete.");
+                setView(currentView);
+              } else {
+                alert("Error: " + (resp.error || "Unknown"));
+              }
             })
             .catch(() => alert("Network error"));
         });
         recContainer.appendChild(completeBtn);
 
-        // 7) Header with Area & Location
+        // 5) Header with Area & Location
         const header = document.createElement("div");
         header.classList.add("record-header");
         header.textContent = `Area: ${data[0].area_desc} | Location: ${data[0].loc_desc}`;
         recContainer.appendChild(header);
 
-        // 8) Build the table
+        // 6) Build the table
         const table = document.createElement("table");
         table.classList.add("record-table");
 
-        // 8a) THEAD
+        // 6a) THEAD
         const thead = document.createElement("thead");
         const headRow = document.createElement("tr");
         visibleCols.forEach((col) => {
@@ -170,7 +196,7 @@ document.addEventListener("DOMContentLoaded", () => {
         thead.appendChild(headRow);
         table.appendChild(thead);
 
-        // 8b) TBODY
+        // 6b) TBODY
         const tbody = document.createElement("tbody");
         let grandTotal = 0;
         let totalCell = null;
@@ -186,8 +212,17 @@ document.addEventListener("DOMContentLoaded", () => {
               const inp = document.createElement("input");
               inp.type = "text";
               inp.value = rowData.SKU || "";
+              inp.classList.add("sku-input"); // mark it
+              // make the box exactly as wide as the content (plus a little padding)
+              const len = String(inp.value).length || 1;
+              inp.size = len + 2; // e.g. 8 chars → size="10"
+              // keep text on one line
+              inp.style.whiteSpace = "nowrap";
               inp.addEventListener("change", () => {
                 rowData.SKU = inp.value;
+                // if the user edits it, re‑size the box
+                const newLen = String(inp.value).length || 1;
+                inp.size = newLen + 2;
               });
               td.appendChild(inp);
 
@@ -204,7 +239,7 @@ document.addEventListener("DOMContentLoaded", () => {
               });
               td.appendChild(inp);
 
-              // Editable Price only if SKU is hidden
+              // Editable Price if SKU hidden
             } else if (col.key === "PRICE" && priceEditable) {
               const inp = document.createElement("input");
               inp.type = "number";
@@ -217,13 +252,23 @@ document.addEventListener("DOMContentLoaded", () => {
               });
               td.appendChild(inp);
 
-              // Computed Extended
+              // Editable Category when SKU & Description hidden
+            } else if (col.key === "CAT_NUM" && catEditable) {
+              const inp = document.createElement("input");
+              inp.type = "text";
+              inp.value = rowData.CAT_NUM || "";
+              inp.addEventListener("change", () => {
+                rowData.CAT_NUM = inp.value;
+              });
+              td.appendChild(inp);
+
+              // Computed Extended price
             } else if (col.key === "EXT_PRICE") {
               const extVal = rowData.EXT_QTY * rowData.PRICE || 0;
-              td.textContent = extVal.toFixed(2);
+              td.textContent = currencyFormatter.format(extVal);
               grandTotal += extVal;
 
-              // Static cells
+              // Static cell
             } else {
               td.textContent = rowData[col.key] ?? "";
             }
@@ -234,7 +279,7 @@ document.addEventListener("DOMContentLoaded", () => {
           tbody.appendChild(tr);
         });
 
-        // 8c) Grand Total row (if EXT_PRICE shown)
+        // 6c) Grand Total row (if EXT_PRICE shown)
         if (visibleCols.some((c) => c.key === "EXT_PRICE")) {
           const trTotal = document.createElement("tr");
           trTotal.classList.add("record-total-row");
@@ -245,7 +290,7 @@ document.addEventListener("DOMContentLoaded", () => {
           trTotal.appendChild(tdLabel);
 
           totalCell = document.createElement("td");
-          totalCell.textContent = grandTotal.toFixed(2);
+          totalCell.textContent = currencyFormatter.format(grandTotal);
           trTotal.appendChild(totalCell);
 
           tbody.appendChild(trTotal);
@@ -254,9 +299,8 @@ document.addEventListener("DOMContentLoaded", () => {
         table.appendChild(tbody);
         recContainer.appendChild(table);
 
-        // 9) Helper to update one row’s Extended and the Grand Total
+        // 7) Helper to recalc a row’s Extended & the Grand Total
         function updateExtended(rowIdx) {
-          // Recompute this row’s extended value
           const rd = data[rowIdx];
           const newExt = rd.EXT_QTY * rd.PRICE || 0;
           const extColIndex = visibleCols.findIndex(
@@ -264,12 +308,11 @@ document.addEventListener("DOMContentLoaded", () => {
           );
           const extCell =
             tbody.querySelectorAll("tr")[rowIdx].children[extColIndex];
-          extCell.textContent = newExt.toFixed(2);
+          extCell.textContent = currencyFormatter.format(newExt);
 
-          // Recompute grand total
           let sum = 0;
           data.forEach((d) => (sum += d.EXT_QTY * d.PRICE || 0));
-          if (totalCell) totalCell.textContent = sum.toFixed(2);
+          if (totalCell) totalCell.textContent = currencyFormatter.format(sum);
         }
       })
       .catch(() => {
