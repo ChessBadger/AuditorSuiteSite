@@ -84,6 +84,8 @@ document.addEventListener("DOMContentLoaded", () => {
         recContainer.innerHTML =
           '<p class="placeholder">Error searching for SKU</p>';
       });
+
+    setView("location");
   }
 
   // Helper: given an array of record‐objects, build the same table your
@@ -183,7 +185,7 @@ document.addEventListener("DOMContentLoaded", () => {
           btn.textContent = item;
           btn.addEventListener("click", () => {
             if (currentView === "sku") {
-              setView("employee");
+              setView("location");
             }
             listEl
               .querySelectorAll("button")
