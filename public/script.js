@@ -56,27 +56,96 @@ document.addEventListener("DOMContentLoaded", () => {
             '<p class="placeholder">No records found for that SKU</p>';
           return;
         }
-        // extract unique locations just like in loadEmployeeLocations
-        const locations = Array.from(
-          new Set(data.map((r) => `${r.LOC_NUM} - ${r.loc_desc}`))
-        );
+
+        // Group records by "LOC_NUM - loc_desc"
+        const byLoc = data.reduce((acc, row) => {
+          const locKey = `${row.LOC_NUM} - ${row.loc_desc}`;
+          if (!acc[locKey]) acc[locKey] = [];
+          acc[locKey].push(row);
+          return acc;
+        }, {});
+
         recContainer.innerHTML = "";
-        const ul = document.createElement("ul");
-        ul.classList.add("record-list");
-        locations.forEach((loc) => {
-          const li = document.createElement("li");
-          const btn = document.createElement("button");
-          btn.textContent = loc;
-          btn.addEventListener("click", () => showLocationTable(loc));
-          li.appendChild(btn);
-          ul.appendChild(li);
+
+        // For each location, render a header + table
+        Object.entries(byLoc).forEach(([loc, rows]) => {
+          // Location header
+          const header = document.createElement("div");
+          header.classList.add("record-header");
+          header.textContent = loc;
+          recContainer.appendChild(header);
+
+          // Table of rows for this location
+          const table = buildRecordTable(rows);
+          recContainer.appendChild(table);
         });
-        recContainer.appendChild(ul);
       })
       .catch(() => {
         recContainer.innerHTML =
           '<p class="placeholder">Error searching for SKU</p>';
       });
+  }
+
+  // Helper: given an array of record‐objects, build the same table your
+  // showLocationTable() does, but without refetching.
+  function buildRecordTable(data) {
+    // figure out which columns actually have data
+    const visibleCols = ALL_COLUMNS.filter((col) =>
+      data.some(
+        (row) => row[col.key] != null && String(row[col.key]).trim() !== ""
+      )
+    );
+
+    const table = document.createElement("table");
+    table.classList.add("record-table");
+
+    // build header
+    const thead = document.createElement("thead");
+    const headRow = document.createElement("tr");
+    visibleCols.forEach((col) => {
+      const th = document.createElement("th");
+      th.textContent = col.label;
+      headRow.appendChild(th);
+    });
+    thead.appendChild(headRow);
+    table.appendChild(thead);
+
+    // build body
+    const tbody = document.createElement("tbody");
+    let grandTotal = 0;
+    data.forEach((row) => {
+      const tr = document.createElement("tr");
+      visibleCols.forEach((col) => {
+        const td = document.createElement("td");
+        if (col.key === "EXT_PRICE") {
+          const val = (row.EXT_QTY || 0) * (row.PRICE || 0);
+          grandTotal += val;
+          td.textContent = currencyFormatter.format(val);
+        } else {
+          td.textContent = row[col.key] ?? "";
+        }
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    });
+
+    // grand total row if needed
+    if (visibleCols.some((c) => c.key === "EXT_PRICE")) {
+      const trTot = document.createElement("tr");
+      trTot.classList.add("record-total-row");
+      const tdLabel = document.createElement("td");
+      tdLabel.textContent = "Grand Total";
+      tdLabel.colSpan = visibleCols.length;
+      trTot.appendChild(tdLabel);
+
+      const tdTotal = document.createElement("td");
+      tdTotal.textContent = currencyFormatter.format(grandTotal);
+      trTot.appendChild(tdTotal);
+      tbody.appendChild(trTot);
+    }
+
+    table.appendChild(tbody);
+    return table;
   }
 
   // hook up the SKU search button
