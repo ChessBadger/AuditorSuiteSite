@@ -4,6 +4,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const btnLoc = document.getElementById("btn-location");
   const listEl = document.getElementById("item-list");
   const recContainer = document.getElementById("record-container");
+  const container = document.querySelector(".container");
 
   let currentView = "employee";
   const btnSKU = document.getElementById("btn-sku");
@@ -241,6 +242,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function showLocationTable(locString) {
     recContainer.innerHTML = '<p class="placeholder">Loading records…</p>';
+    container.classList.add("collapsed");
 
     fetch(`/api/records?location=${encodeURIComponent(locString)}`)
       .then((r) => r.json())
