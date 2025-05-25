@@ -216,8 +216,8 @@ h1 {
   background: var(--primary);
   color: #fff;
   position: sticky;
-  top: calc(0.75rem + 1rem); /* below btn+header */
-  z-index: 1;
+  top: calc(0.75rem + 1.5rem); /* below btn+header */
+  z-index: 50;
 }
 .record-table tbody tr:nth-child(even) {
   background: var(--zebra);
@@ -289,4 +289,13 @@ h1 {
   background: var(--primary);
   color: #fff;
   cursor: pointer;
+}
+
+.logo {
+  position: fixed; /* or absolute if you want it only within a container */
+  top: 12px; /* distance from the very top edge */
+  right: 12px; /* distance from the right edge */
+  max-height: 50px; /* adjust this to get the perfect logo height */
+  width: auto; /* preserve aspect ratio */
+  z-index: 1000; /* guarantees it floats above other elements */
 }
