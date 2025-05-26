@@ -183,21 +183,42 @@ document.addEventListener("DOMContentLoaded", () => {
         items.forEach((item) => {
           const li = document.createElement("li");
           const btn = document.createElement("button");
-          btn.textContent = item;
-          btn.addEventListener("click", () => {
-            if (currentView === "sku") {
-              setView("location");
-            }
-            listEl
-              .querySelectorAll("button")
-              .forEach((b) => b.classList.remove("active"));
-            btn.classList.add("active");
-            if (currentView === "employee") {
-              loadEmployeeLocations(item);
-            } else {
-              showLocationTable(item);
-            }
-          });
+
+          // support both old (string) and new ({ name, completed }) shapes
+          let name = item;
+          let completed = false;
+          if (typeof item === "object") {
+            name = item.name;
+            completed = item.completed;
+          }
+
+          btn.textContent = name;
+
+          if (completed) {
+            // no more audits: disable & append a checkmark
+            btn.disabled = true;
+            const chk = document.createElement("span");
+            chk.classList.add("checkmark");
+            chk.textContent = " ✓";
+            btn.appendChild(chk);
+          } else {
+            // existing click logic
+            btn.addEventListener("click", () => {
+              if (currentView === "sku") {
+                setView("location");
+              }
+              listEl
+                .querySelectorAll("button")
+                .forEach((b) => b.classList.remove("active"));
+              btn.classList.add("active");
+              if (currentView === "employee") {
+                loadEmployeeLocations(name);
+              } else {
+                showLocationTable(name);
+              }
+            });
+          }
+
           li.appendChild(btn);
           listEl.appendChild(li);
         });

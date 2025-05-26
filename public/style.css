@@ -299,3 +299,16 @@ h1 {
   width: auto; /* preserve aspect ratio */
   z-index: 1000; /* guarantees it floats above other elements */
 }
+
+/* fade out completed buttons */
+button[disabled] {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* green checkmark spacing */
+.checkmark {
+  color: green;
+  margin-left: 0.25em;
+  font-weight: bold;
+}
