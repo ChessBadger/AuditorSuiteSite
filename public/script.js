@@ -287,6 +287,13 @@ document.addEventListener("DOMContentLoaded", () => {
         );
 
         const skuVisible = visibleCols.some((c) => c.key === "SKU");
+        if (!skuVisible) {
+          btnSKU.style.display = "none";
+          skuInput.style.display = "none";
+        } else {
+          btnSKU.style.display = "";
+          skuInput.style.display = "";
+        }
         const descVisible = visibleCols.some((c) => c.key === "DESCRIPTIO");
         const catEditable =
           !skuVisible &&
