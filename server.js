@@ -93,7 +93,7 @@ app.get("/api/employees", (req, res) => {
 
     // 3. add any brand‐new employees with completed=false
     names.forEach((n) => {
-      if (!empData.hasOwnProperty(n)) empData[n] = false;
+      empData[n] = false;
     });
 
     // 4. save any additions
