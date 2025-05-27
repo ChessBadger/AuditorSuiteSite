@@ -34,6 +34,12 @@ document.addEventListener("DOMContentLoaded", () => {
     containerEl.classList.add("collapsed");
   }
 
+  document.addEventListener("focusin", (e) => {
+    if (e.target.tagName === "INPUT") {
+      e.target.select();
+    }
+  });
+
   btnSKU.addEventListener("click", () => {
     currentView = "sku";
     // clear active states on the other buttons
