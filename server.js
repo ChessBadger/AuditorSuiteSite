@@ -76,6 +76,11 @@ app.get("/api/reports", (req, res) => {
   });
 });
 
+// serve cust_master.json from the JSON_DIR
+app.get("/api/cust_master.json", (req, res) => {
+  res.sendFile(path.join(JSON_DIR, "cust_master.json"));
+});
+
 // ——— list all employees across enabled reports ———
 app.get("/api/employees", (req, res) => {
   loadEnabledReports((err, reps) => {

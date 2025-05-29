@@ -312,3 +312,8 @@ button[disabled] {
   margin-left: 0.25em;
   font-weight: bold;
 }
+
+/* Highlight SKU inputs with no match */
+.sku-error {
+  border: 2px solid red;
+}

@@ -29,6 +29,15 @@ document.addEventListener("DOMContentLoaded", () => {
   const sidebarToggle = document.getElementById("sidebar-toggle");
   const containerEl = document.querySelector(".container");
 
+  // ——— Load cust_master.json ———
+  let custMaster = [];
+  fetch("/api/cust_master.json")
+    .then((r) => r.json())
+    .then((data) => {
+      custMaster = data;
+    })
+    .catch((err) => console.error("Failed to load cust_master.json", err));
+
   // Read last state from localStorage (optional)
   if (localStorage.getItem("sidebarCollapsed") === "true") {
     containerEl.classList.add("collapsed");
@@ -431,7 +440,30 @@ document.addEventListener("DOMContentLoaded", () => {
                 inp.value = rowData.SKU || "";
                 inp.style.whiteSpace = "nowrap";
                 inp.addEventListener("change", () => {
-                  rowData.SKU = inp.value;
+                  rowData.SKU = inp.value.trim();
+
+                  // Attempt to find a master record
+                  const master = custMaster.find(
+                    (m) => String(m.SKU) === String(rowData.SKU)
+                  );
+                  if (master) {
+                    // Overwrite all fields on this rowData
+                    ALL_COLUMNS.forEach((col) => {
+                      if (master[col.key] != null) {
+                        rowData[col.key] = master[col.key];
+                      }
+                    });
+                    Object.assign(rowData, master);
+                    // always override PRICE with the master’s STORE_PRIC
+                    rowData.PRICE = rowData.STORE_PRIC;
+                    // Clear error highlight
+                    inp.classList.remove("sku-error");
+                    // Rebuild to reflect updated values
+                    rebuildTable();
+                  } else {
+                    // No match: highlight input red
+                    inp.classList.add("sku-error");
+                  }
                 });
                 td.appendChild(inp);
               } else if (col.key === "EXT_QTY") {
