@@ -7,8 +7,9 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 const JSON_DIR = path.resolve(__dirname, "..");
 
-// ← THIS MUST COME BEFORE YOUR ROUTES:
-app.use(express.json());
+// allow up to 10 MB of JSON
+app.use(express.json({ limit: "10mb" }));
+noapp.use(express.urlencoded({ limit: "10mb", extended: true }));
 
 // serve static assets
 app.use(express.static(path.join(__dirname, "public")));
