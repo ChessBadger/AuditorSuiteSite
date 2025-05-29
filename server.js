@@ -10,6 +10,8 @@ const JSON_DIR = path.resolve(__dirname, "..");
 // ——— In‑memory cache for all JSON files ———
 const reportCache = new Map();
 
+let skuMaster = [];
+const CUST_MASTER_FILE = path.join(JSON_DIR, "cust_master.json");
 /**
  * Preload every .json in JSON_DIR into reportCache
  */
@@ -52,8 +54,25 @@ fs.watch(JSON_DIR, (event, filename) => {
   }
 });
 
+function preloadCustMaster() {
+  try {
+    const raw = fs.readFileSync(CUST_MASTER_FILE, "utf8");
+    skuMaster = JSON.parse(raw);
+    console.log(`Preloaded ${skuMaster.length} SKUs into memory`);
+  } catch (err) {
+    console.warn("Failed to preload cust_master.json:", err.message);
+  }
+}
+
+fs.watchFile(CUST_MASTER_FILE, () => {
+  console.log("cust_master.json changed — reloading");
+  preloadCustMaster();
+});
+
 // Preload at startup
 preloadReports();
+
+preloadCustMaster();
 
 // allow up to 10 MB of JSON
 app.use(express.json({ limit: "10mb" }));
@@ -103,20 +122,9 @@ function loadEnabledReports(callback) {
 // Lookup a single SKU from cust_master.json
 app.get("/api/sku/:sku", (req, res) => {
   const sku = String(req.params.sku);
-  const masterPath = path.join(JSON_DIR, "cust_master.json");
-
-  fs.readFile(masterPath, "utf8", (err, data) => {
-    if (err) return res.status(500).json({ error: "Master file read error" });
-
-    try {
-      const records = JSON.parse(data);
-      const found = records.find((r) => String(r.SKU) === sku);
-      if (found) res.json(found);
-      else res.status(404).json({ error: "SKU not found" });
-    } catch (e) {
-      res.status(500).json({ error: "Invalid master file format" });
-    }
-  });
+  const match = skuMaster.find((item) => String(item.SKU) === sku);
+  if (match) return res.json(match);
+  res.status(404).json({ error: "SKU not found" });
 });
 
 // ——— list enabled JSON filenames ———
