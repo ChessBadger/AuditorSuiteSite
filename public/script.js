@@ -129,6 +129,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (col.key === "EXT_PRICE") {
           const val = (row.EXT_QTY || 0) * (row.PRICE || 0);
           grandTotal += val;
+          row.EXT_PRICE = grandTotal;
           td.textContent = currencyFormatter.format(val);
         } else {
           td.textContent = row[col.key] ?? "";
@@ -519,6 +520,7 @@ document.addEventListener("DOMContentLoaded", () => {
         function updateExtended(rowIdx) {
           const rd = data[rowIdx];
           const newExt = rd.EXT_QTY * rd.PRICE || 0;
+          rd.EXT_PRICE = newExt;
           const colIndex = visibleCols.findIndex((c) => c.key === "EXT_PRICE");
           const cell = tbody.querySelectorAll("tr")[rowIdx].children[colIndex];
           cell.textContent = currencyFormatter.format(newExt);
