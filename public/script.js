@@ -452,6 +452,7 @@ document.addEventListener("DOMContentLoaded", () => {
                           }
                         });
                         rowData.PRICE = master.STORE_PRIC; // override price
+                        rowData.CAT_NUM = master.DEPT;
                         inp.classList.remove("sku-error");
                         rebuildTable();
                       } else {
