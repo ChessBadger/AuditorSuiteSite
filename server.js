@@ -7,6 +7,54 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 const JSON_DIR = path.resolve(__dirname, "..");
 
+// ——— In‑memory cache for all JSON files ———
+const reportCache = new Map();
+
+/**
+ * Preload every .json in JSON_DIR into reportCache
+ */
+function preloadReports() {
+  const files = fs
+    .readdirSync(JSON_DIR)
+    .filter((f) => f.toLowerCase().endsWith(".json"));
+
+  files.forEach((f) => {
+    try {
+      const raw = fs.readFileSync(path.join(JSON_DIR, f), "utf8");
+      const data = JSON.parse(raw);
+      reportCache.set(f, data);
+    } catch (err) {
+      console.warn(`Skipping invalid JSON ${f}: ${err.message}`);
+    }
+  });
+
+  console.log(`Preloaded ${reportCache.size} JSON files into memory`);
+}
+
+// Watch for changes in JSON_DIR and reload individual files
+fs.watch(JSON_DIR, (event, filename) => {
+  if (!filename || !filename.toLowerCase().endsWith(".json")) return;
+
+  const filePath = path.join(JSON_DIR, filename);
+  if (fs.existsSync(filePath)) {
+    // file added or changed → reload
+    try {
+      const raw = fs.readFileSync(filePath, "utf8");
+      reportCache.set(filename, JSON.parse(raw));
+      console.log(`Reloaded ${filename} into cache`);
+    } catch (err) {
+      console.warn(`Failed to reload ${filename}: ${err.message}`);
+    }
+  } else {
+    // file deleted → remove from cache
+    reportCache.delete(filename);
+    console.log(`Removed ${filename} from cache`);
+  }
+});
+
+// Preload at startup
+preloadReports();
+
 // allow up to 10 MB of JSON
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ limit: "10mb", extended: true }));
@@ -33,39 +81,24 @@ function saveEmployees(empData) {
 }
 
 /**
- * Helper: reads every .json in JSON_DIR and returns only
- * those whose parsed object has enabled === true.
+ * Helper: returns only those cached JSON entries
+ * whose parsed object has enabled === true.
  *
- * callback signature: (err, [ { file: '01010.json', data: {…} }, … ])
+ * callback signature: (err, [ { file, data }, … ])
  */
 function loadEnabledReports(callback) {
-  fs.readdir(JSON_DIR, (err, files) => {
-    if (err) return callback(err);
-    const jsonFiles = files.filter((f) => f.toLowerCase().endsWith(".json"));
+  try {
     const results = [];
-    let remaining = jsonFiles.length;
-    if (!remaining) return callback(null, results);
-
-    jsonFiles.forEach((f) => {
-      const fullPath = path.join(JSON_DIR, f);
-      fs.readFile(fullPath, "utf8", (err, raw) => {
-        remaining--;
-        if (!err) {
-          try {
-            const obj = JSON.parse(raw);
-            if (obj.enabled === true) {
-              results.push({ file: f, data: obj });
-            }
-          } catch (_) {
-            /* ignore parse errors */
-          }
-        }
-        if (remaining === 0) {
-          callback(null, results);
-        }
-      });
-    });
-  });
+    for (const [file, data] of reportCache.entries()) {
+      if (data && data.enabled === true) {
+        results.push({ file, data });
+      }
+    }
+    // simulate async
+    process.nextTick(() => callback(null, results));
+  } catch (err) {
+    process.nextTick(() => callback(err));
+  }
 }
 
 // ——— list enabled JSON filenames ———
@@ -99,7 +132,9 @@ app.get("/api/employees", (req, res) => {
 
     // 3. add any brand‐new employees with completed=false
     names.forEach((n) => {
-      empData[n] = false;
+      if (!empData.hasOwnProperty(n)) {
+        empData[n] = false;
+      }
     });
 
     // 4. save any additions
@@ -158,7 +193,6 @@ app.get("/api/records", (req, res) => {
   });
 });
 
-// ─── POST /api/reports/:name/complete ───
 // ─── POST /api/reports/:name/complete ───
 app.post("/api/reports/:name/complete", (req, res) => {
   const fileName = req.params.name;
