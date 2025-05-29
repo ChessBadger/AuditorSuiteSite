@@ -100,6 +100,24 @@ function loadEnabledReports(callback) {
     process.nextTick(() => callback(err));
   }
 }
+// Lookup a single SKU from cust_master.json
+app.get("/api/sku/:sku", (req, res) => {
+  const sku = String(req.params.sku);
+  const masterPath = path.join(JSON_DIR, "cust_master.json");
+
+  fs.readFile(masterPath, "utf8", (err, data) => {
+    if (err) return res.status(500).json({ error: "Master file read error" });
+
+    try {
+      const records = JSON.parse(data);
+      const found = records.find((r) => String(r.SKU) === sku);
+      if (found) res.json(found);
+      else res.status(404).json({ error: "SKU not found" });
+    } catch (e) {
+      res.status(500).json({ error: "Invalid master file format" });
+    }
+  });
+});
 
 // ——— list enabled JSON filenames ———
 app.get("/api/reports", (req, res) => {

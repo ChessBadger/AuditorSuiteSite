@@ -442,10 +442,22 @@ document.addEventListener("DOMContentLoaded", () => {
                 inp.addEventListener("change", () => {
                   rowData.SKU = inp.value.trim();
 
-                  // Attempt to find a master record
-                  const master = custMaster.find(
-                    (m) => String(m.SKU) === String(rowData.SKU)
-                  );
+                  fetch(`/api/sku/${encodeURIComponent(rowData.SKU)}`)
+                    .then((r) => (r.ok ? r.json() : null))
+                    .then((master) => {
+                      if (master) {
+                        ALL_COLUMNS.forEach((col) => {
+                          if (master[col.key] != null) {
+                            rowData[col.key] = master[col.key];
+                          }
+                        });
+                        rowData.PRICE = master.STORE_PRIC; // override price
+                        inp.classList.remove("sku-error");
+                        rebuildTable();
+                      } else {
+                        inp.classList.add("sku-error");
+                      }
+                    });
                   if (master) {
                     // Overwrite all fields on this rowData
                     ALL_COLUMNS.forEach((col) => {
