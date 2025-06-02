@@ -452,8 +452,6 @@ document.addEventListener("DOMContentLoaded", () => {
                             master.hasOwnProperty(locKey) &&
                             master[locKey] != null
                           ) {
-                            console.log("1" + rowData[locKey]);
-                            console.log("2" + master[locKey]);
                             rowData[locKey] = master[locKey];
                           }
                         });
