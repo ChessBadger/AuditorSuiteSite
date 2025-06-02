@@ -446,13 +446,27 @@ document.addEventListener("DOMContentLoaded", () => {
                     .then((r) => (r.ok ? r.json() : null))
                     .then((master) => {
                       if (master) {
-                        ALL_COLUMNS.forEach((col) => {
-                          if (master[col.key] != null) {
-                            rowData[col.key] = master[col.key];
+                        Object.keys(rowData).forEach((locKey) => {
+                          // If the master record has the same field, overwrite:
+                          if (
+                            master.hasOwnProperty(locKey) &&
+                            master[locKey] != null
+                          ) {
+                            console.log("1" + rowData[locKey]);
+                            console.log("2" + master[locKey]);
+                            rowData[locKey] = master[locKey];
                           }
                         });
-                        rowData.PRICE = master.STORE_PRIC; // override price
-                        rowData.CAT_NUM = master.DEPT;
+                        // If your master JSON uses different property names than your
+                        // location JSON, you still need to map them explicitly:
+                        if (master.STORE_PRIC != null) {
+                          rowData.PRICE = master.STORE_PRIC;
+                        }
+                        if (master.DEPT != null) {
+                          rowData.CAT_NUM = master.DEPT;
+                        }
+
+                        rowData.EXT_PRICE = rowData.PRICE * rowData.EXT_QTY;
                         inp.classList.remove("sku-error");
                         rebuildTable();
                       } else {
