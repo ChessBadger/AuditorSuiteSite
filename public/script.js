@@ -459,24 +459,6 @@ document.addEventListener("DOMContentLoaded", () => {
                         inp.classList.add("sku-error");
                       }
                     });
-                  if (master) {
-                    // Overwrite all fields on this rowData
-                    ALL_COLUMNS.forEach((col) => {
-                      if (master[col.key] != null) {
-                        rowData[col.key] = master[col.key];
-                      }
-                    });
-                    Object.assign(rowData, master);
-                    // always override PRICE with the master’s STORE_PRIC
-                    rowData.PRICE = rowData.STORE_PRIC;
-                    // Clear error highlight
-                    inp.classList.remove("sku-error");
-                    // Rebuild to reflect updated values
-                    rebuildTable();
-                  } else {
-                    // No match: highlight input red
-                    inp.classList.add("sku-error");
-                  }
                 });
                 td.appendChild(inp);
               } else if (col.key === "EXT_QTY") {
