@@ -49,6 +49,28 @@ document.addEventListener("DOMContentLoaded", () => {
       '<p class="placeholder">Enter a SKU and click Search</p>';
   });
 
+  fetch("/api/YesNoOption.json")
+    .then((res) => {
+      if (!res.ok) throw new Error("Cannot load YesNoOption.json");
+      return res.json();
+    })
+    .then((config) => {
+      if (config.YesNo === false) {
+        // Hide “By Employee” button
+        btnEmp.style.display = "none";
+
+        // Programmatically toggle “By Location”
+        btnLoc.classList.add("active");
+        currentView = "location";
+
+        // load location sidebar immediately:
+        loadSidebarItems();
+      }
+    })
+    .catch((err) => {
+      console.warn("Could not load YesNoOption.json:", err);
+    });
+
   function searchBySKU() {
     const sku = skuInput.value.trim();
     if (!sku) return alert("Please enter a SKU.");

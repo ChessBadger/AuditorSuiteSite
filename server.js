@@ -135,6 +135,11 @@ app.get("/api/reports", (req, res) => {
   });
 });
 
+// serve YesNoOption.json from the JSON_DIR
+app.get("/api/YesNoOption.json", (req, res) => {
+  res.sendFile(path.join(JSON_DIR, "YesNoOption.json"));
+});
+
 // serve cust_master.json from the JSON_DIR
 app.get("/api/cust_master.json", (req, res) => {
   res.sendFile(path.join(JSON_DIR, "cust_master.json"));
