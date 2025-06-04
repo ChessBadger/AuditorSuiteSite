@@ -29,15 +29,6 @@ document.addEventListener("DOMContentLoaded", () => {
   const sidebarToggle = document.getElementById("sidebar-toggle");
   const containerEl = document.querySelector(".container");
 
-  // ——— Load cust_master.json ———
-  let custMaster = [];
-  fetch("/api/cust_master.json")
-    .then((r) => r.json())
-    .then((data) => {
-      custMaster = data;
-    })
-    .catch((err) => console.error("Failed to load cust_master.json", err));
-
   // Read last state from localStorage (optional)
   if (localStorage.getItem("sidebarCollapsed") === "true") {
     containerEl.classList.add("collapsed");
