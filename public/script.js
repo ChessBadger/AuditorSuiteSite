@@ -330,18 +330,37 @@ document.addEventListener("DOMContentLoaded", () => {
         addBtn.classList.add("complete-btn");
         addBtn.style.marginRight = "1rem";
         addBtn.addEventListener("click", () => {
+          // 1) Build a “blank” record object that has all the same keys as data[0],
+          //    initializing every property to "" (empty string).
           const newRec = {};
-          ALL_COLUMNS.forEach((c) => (newRec[c.key] = ""));
-          newRec.EXT_QTY = 0;
-          newRec.PRICE = 0;
+
+          if (data.length > 0) {
+            // Copy every key from the first existing record into newRec
+            Object.keys(data[0]).forEach((key) => {
+              newRec[key] = "";
+            });
+
+            // 2) Immediately overwrite these three so they match the other rows:
+            newRec.file = data[1].file;
+            newRec.AREA_NUM = data[1].AREA_NUM;
+            newRec.LOC_NUM = data[1].LOC_NUM;
+          } else {
+            // (Fallback: if somehow data[] is empty, at least include the columns we know about)
+            ALL_COLUMNS.forEach((col) => {
+              newRec[col.key] = "";
+            });
+          }
+
+          // 3) Add the required flags for a “new” row
           newRec.deleted = false;
           newRec.isNew = true;
-          data.unshift(newRec); // insert at top
+
+          // 4) Insert at the front of the array, rebuild, and scroll into view:
+          data.unshift(newRec);
           rebuildTable();
-          recContainer
-            .querySelector("table")
-            .scrollIntoView({ behavior: "smooth" });
+          recContainer.querySelector("table");
         });
+
         btnGroup.appendChild(addBtn);
 
         const completeBtn = document.createElement("button");
