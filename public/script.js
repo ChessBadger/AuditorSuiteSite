@@ -545,13 +545,24 @@ document.addEventListener("DOMContentLoaded", () => {
             delBtn.classList.add("delete-btn");
             if (rowData.deleted) delBtn.classList.add("deleted");
             delBtn.addEventListener("click", () => {
-              rowData.deleted = !rowData.deleted;
-              if (rowData.deleted) {
-                tr.classList.add("deleted");
-                delBtn.classList.add("deleted");
+              // If this row was just added (isNew), remove it from `data` entirely:
+              if (rowData.isNew) {
+                // Find the index of this record in the `data` array and remove it
+                const idx = data.indexOf(rowData);
+                if (idx !== -1) {
+                  data.splice(idx, 1);
+                  rebuildTable();
+                }
               } else {
-                tr.classList.remove("deleted");
-                delBtn.classList.remove("deleted");
+                // Otherwise, toggle the "deleted" flag and CSS class as before
+                rowData.deleted = !rowData.deleted;
+                if (rowData.deleted) {
+                  tr.classList.add("deleted");
+                  delBtn.classList.add("deleted");
+                } else {
+                  tr.classList.remove("deleted");
+                  delBtn.classList.remove("deleted");
+                }
               }
             });
             tdDel.appendChild(delBtn);
