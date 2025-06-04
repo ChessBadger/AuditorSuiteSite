@@ -483,6 +483,8 @@ document.addEventListener("DOMContentLoaded", () => {
                 inp.addEventListener("input", () => {
                   rowData.EXT_QTY = parseInt(inp.value) || 0;
                   updateExtended(rowIdx);
+                  rowData.UNITS = rowData.EXT_QTY;
+                  rowData.QUANTITY2 = 1;
                 });
                 td.appendChild(inp);
               } else if (col.key === "PRICE" && priceEditable) {
