@@ -187,21 +187,57 @@ h1 {
 .complete-btn:hover {
   opacity: 0.9;
 }
+
+/* ======================================================
+   OVERRIDES: force table and inputs to shrink‐to‐fit
+   ====================================================== */
+
+/* 1) Un‐force the 800px minimum and horizontal scroll on the table itself */
 .record-table {
-  width: 100%;
-  border-collapse: separate;
-  border-spacing: 0;
-  min-width: 800px;
-  overflow-x: auto;
-  table-layout: auto;
+  /* cancel the old “min-width: 800px” */
+  min-width: 0 !important;
+  /* cancel the old “overflow-x: auto” so the table won't scroll by itself */
+  overflow-x: visible !important;
+  /* keep table‐layout: auto so columns size to content */
+  table-layout: auto !important;
+  /* never let it exceed its parent container’s width */
+  max-width: 100% !important;
 }
 
+/* 2) Let cells break/wrap instead of nowrap */
+.record-table th,
+.record-table td {
+  /* cancel the old no-wrap */
+  white-space: normal !important;
+}
+
+/* 3) Force each <input> to size exactly to its intrinsic content */
 .record-table td input[type="text"],
 .record-table td input[type="number"] {
-  box-sizing: border-box; /* include padding in the width calculation */
-  width: auto; /* size to content */
-  min-width: 4ch; /* at least ~4 characters wide */
-  max-width: 100%; /* never exceed its cell */
+  box-sizing: border-box; /* keep padding inside the width */
+  /* 
+    width: max-content causes the input to shrink‐to‐fit exactly
+    the current value (plus its padding). 
+  */
+  width: max-content !important;
+  /* still leave at least ~4 characters of space when it's empty */
+  min-width: 4ch !important;
+  /* never let it overflow its cell if the cell is forced narrower */
+  max-width: 100% !important;
+  /* you can adjust padding if you want a more “tight” input */
+  padding: 0.25rem 0.5rem !important;
+
+  font-size: 16px;
+}
+
+/* 4) (Optional) If any <input> is still too wide, you can force it
+      to display inline‐block and drop any extra margin/padding */
+.record-table td input[type="text"],
+.record-table td input[type="number"] {
+  display: inline-block !important;
+  margin: 0 !important;
+  /* you already have font-size inherited; if you want to shrink it more, 
+     consider reducing font-size here—but usually 1rem is fine. */
 }
 
 .record-table th,
@@ -231,18 +267,6 @@ h1 {
 
 .record-header {
   font-weight: bold;
-}
-
-.record-table td input[type="text"],
-.record-table td input[type="number"] {
-  box-sizing: border-box;
-  width: auto;
-  min-width: 4ch;
-  max-width: 100%;
-
-  /* match the rest of your fields: */
-  font-size: 1rem; /* or: font-size: inherit; */
-  line-height: 1.5; /* optional, to match your other controls */
 }
 
 /* ===== New for delete/added rows ===== */
