@@ -254,6 +254,9 @@ app.post("/api/reports/:name/complete", (req, res) => {
     fs.renameSync(tempPath, dstPath);
     fs.unlinkSync(srcPath);
 
+    // remove from the in-memory cache so it’s no longer treated as “enabled”
+    reportCache.delete(fileName);
+
     // 5) Update employee‑completion flags
     const empData = loadEmployees();
     req.body.records.forEach((rec) => {
