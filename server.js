@@ -161,13 +161,10 @@ app.get("/api/employees", (req, res) => {
     // 2. load or initialize employees.json
     const empData = loadEmployees();
 
-    // 3. add any brand‐new employees with completed=false
+    // 3. for any employee that now has audits, clear the completed flag
     names.forEach((n) => {
-      if (!empData.hasOwnProperty(n)) {
-        empData[n] = false;
-      }
+      empData[n] = false;
     });
-
     // 4. save any additions
     saveEmployees(empData);
 
