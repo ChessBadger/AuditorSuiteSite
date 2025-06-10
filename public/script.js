@@ -388,11 +388,11 @@ document.addEventListener("DOMContentLoaded", () => {
               inp.reportValidity();
               return;
             }
-            if (inp.value.trim() === "") {
-              alert("All fields must be filled.");
-              inp.focus();
-              return;
-            }
+            // if (inp.value.trim() === "") {
+            //   alert("All fields must be filled.");
+            //   inp.focus();
+            //   return;
+            // }
           }
 
           if (!confirm("Are you sure you want to mark this location complete?"))
@@ -468,7 +468,7 @@ document.addEventListener("DOMContentLoaded", () => {
               if (col.key === "SKU") {
                 const inp = document.createElement("input");
                 inp.type = "number";
-                inp.required = true;
+                // inp.required = true;
                 inp.value = rowData.SKU || "";
                 inp.style.whiteSpace = "nowrap";
                 inp.addEventListener("change", () => {
