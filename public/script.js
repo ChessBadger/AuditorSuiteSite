@@ -513,7 +513,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 inp.required = true;
                 inp.value = rowData.EXT_QTY || 0;
                 inp.addEventListener("input", () => {
-                  rowData.EXT_QTY = parseInt(inp.value) || 0;
+                  rowData.EXT_QTY = parseFloat(inp.value) || 0;
                   updateExtended(rowIdx);
                   rowData.UNITS = rowData.EXT_QTY;
                   rowData.QUANTITY2 = 1;
