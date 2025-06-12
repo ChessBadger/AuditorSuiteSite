@@ -183,6 +183,13 @@ document.addEventListener("DOMContentLoaded", () => {
   // hook up the SKU search button
   btnSKU.addEventListener("click", searchBySKU);
 
+  btnLoc.addEventListener("click", () => {
+    containerEl.classList.remove("collapsed");
+  });
+
+  btnEmp.addEventListener("click", () => {
+    containerEl.classList.remove("collapsed");
+  });
   // Toggle on click
   sidebarToggle.addEventListener("click", () => {
     containerEl.classList.toggle("collapsed");
