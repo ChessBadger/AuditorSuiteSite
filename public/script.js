@@ -386,6 +386,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const completeBtn = document.createElement("button");
         completeBtn.textContent = "Mark Location Complete";
         completeBtn.classList.add("complete-btn");
+
         completeBtn.addEventListener("click", () => {
           // validate all inputs
           const tableEl = recContainer.querySelector("table");
@@ -431,6 +432,7 @@ document.addEventListener("DOMContentLoaded", () => {
               }
             })
             .catch(() => alert("Network error"));
+          containerEl.classList.remove("collapsed");
         });
         btnGroup.appendChild(completeBtn);
         recContainer.appendChild(btnGroup);
