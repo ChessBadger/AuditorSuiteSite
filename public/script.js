@@ -2,6 +2,7 @@
 document.addEventListener("DOMContentLoaded", () => {
   const btnEmp = document.getElementById("btn-employee");
   const btnLoc = document.getElementById("btn-location");
+  const btnRefresh = document.getElementById("btn-refresh");
   const listEl = document.getElementById("item-list");
   const recContainer = document.getElementById("record-container");
   const container = document.querySelector(".container");
@@ -196,6 +197,10 @@ document.addEventListener("DOMContentLoaded", () => {
     containerEl.classList.remove("collapsed");
   });
 
+  btnRefresh.addEventListener("click", () => {
+    containerEl.classList.remove("collapsed");
+  });
+
   btnEmp.addEventListener("click", () => {
     containerEl.classList.remove("collapsed");
   });
@@ -209,8 +214,14 @@ document.addEventListener("DOMContentLoaded", () => {
   btnEmp.addEventListener("click", () => setView("employee"));
   btnLoc.addEventListener("click", () => setView("location"));
 
+  btnRefresh.addEventListener("click", () => setView("current"));
+
   function setView(view) {
-    currentView = view;
+    if (view == "current") {
+      currentView = currentView;
+    } else {
+      currentView = view;
+    }
     btnEmp.classList.toggle("active", view === "employee");
     btnLoc.classList.toggle("active", view === "location");
     recContainer.innerHTML =
