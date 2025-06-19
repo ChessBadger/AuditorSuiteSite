@@ -528,9 +528,11 @@ document.addEventListener("DOMContentLoaded", () => {
                         }
 
                         rowData.EXT_PRICE = rowData.PRICE * rowData.EXT_QTY;
+                        rowData.FOUND_STAT = "Y";
                         inp.classList.remove("sku-error");
                         rebuildTable();
                       } else {
+                        rowData.FOUND_STAT = "F";
                         inp.classList.add("sku-error");
                       }
                     });
