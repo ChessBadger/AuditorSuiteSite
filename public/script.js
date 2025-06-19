@@ -40,6 +40,15 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  document
+    .querySelector("#record-container")
+    .addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && e.target.tagName === "INPUT") {
+        e.preventDefault();
+        e.target.blur();
+      }
+    });
+
   btnSKU.addEventListener("click", () => {
     currentView = "sku";
     // clear active states on the other buttons
