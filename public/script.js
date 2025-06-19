@@ -384,8 +384,6 @@ document.addEventListener("DOMContentLoaded", () => {
             newRec.file = data[1].file;
             newRec.AREA_NUM = data[1].AREA_NUM;
             newRec.LOC_NUM = data[1].LOC_NUM;
-            newRec.area_desc = data[1].area_desc;
-            newRec.loc_desc = data[1].loc_desc;
           } else {
             // (Fallback: if somehow data[] is empty, at least include the columns we know about)
             ALL_COLUMNS.forEach((col) => {
