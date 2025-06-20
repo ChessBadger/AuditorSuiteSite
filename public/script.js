@@ -248,6 +248,8 @@ document.addEventListener("DOMContentLoaded", () => {
             completed = item.completed;
           }
 
+          if (!name || name.toString().trim() === "") return;
+
           btn.textContent = name;
 
           if (completed) {
