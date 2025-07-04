@@ -658,4 +658,19 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // kick things off
   setView("employee");
+
+  // Jump-to-Top button setup
+  const jumpBtn = document.getElementById("jump-to-top");
+
+  // Scroll the record container to top when clicked
+  jumpBtn.addEventListener("click", () => {
+    recContainer.scrollTo({ top: 0, behavior: "smooth" });
+  });
+
+  // Show/hide based on record-container scroll position
+  function toggleJumpBtn() {
+    jumpBtn.style.display = recContainer.scrollTop > 100 ? "block" : "none";
+  }
+  recContainer.addEventListener("scroll", toggleJumpBtn);
+  toggleJumpBtn();
 });

@@ -341,3 +341,20 @@ button[disabled] {
 .sku-error {
   border: 2px solid red;
 }
+
+/* Jump-to-Top button */
+#jump-to-top {
+  display: none; /* hidden until scrolled */
+  margin: 1rem auto; /* spacing and centered */
+  padding: 0.5rem 1rem;
+  font-size: 1rem;
+  background: var(--primary);
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+#jump-to-top:hover {
+  background: var(--primary-hover);
+}
