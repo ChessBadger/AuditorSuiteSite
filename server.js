@@ -179,29 +179,42 @@ app.get("/api/employees", (req, res) => {
 // ——— list all locations across enabled reports ———
 // server.js
 
-// ——— list all locations across enabled reports, grouped by area_desc ———
 app.get("/api/locations", (req, res) => {
   loadEnabledReports((err, reps) => {
     if (err) return res.status(500).json({ error: err.message });
 
-    // Build a map: area_desc → Set of "LOC_NUM - loc_desc"
+    // Build a map: area_desc → { area_num, locations:Set }
     const grouped = {};
     reps.forEach(({ data }) => {
       data.records?.forEach((rec) => {
-        if (rec.area_desc && rec.LOC_NUM && rec.loc_desc) {
-          grouped[rec.area_desc] = grouped[rec.area_desc] || new Set();
-          grouped[rec.area_desc].add(`${rec.LOC_NUM} - ${rec.loc_desc}`);
+        const { area_desc, AREA_NUM, LOC_NUM, loc_desc } = rec;
+        if (!area_desc || AREA_NUM == null || !LOC_NUM || !loc_desc) return;
+
+        if (!grouped[area_desc]) {
+          grouped[area_desc] = {
+            area_num: AREA_NUM,
+            locations: new Set(),
+          };
         }
+        // In case the same area_desc appears with different AREA_NUMs,
+        // keep the lowest one
+        grouped[area_desc].area_num = Math.min(
+          grouped[area_desc].area_num,
+          AREA_NUM
+        );
+        grouped[area_desc].locations.add(`${LOC_NUM} - ${loc_desc}`);
       });
     });
 
-    // Turn into sorted array of { area_desc, locations: [] }
-    const result = Object.keys(grouped)
-      .sort()
-      .map((area) => ({
-        area_desc: area,
-        locations: Array.from(grouped[area]).sort(),
-      }));
+    // Convert to array, sort by area_num, then strip area_num before sending
+    const result = Object.entries(grouped)
+      .map(([area_desc, { area_num, locations }]) => ({
+        area_desc,
+        area_num,
+        locations: Array.from(locations).sort(),
+      }))
+      .sort((a, b) => a.area_num - b.area_num)
+      .map(({ area_desc, locations }) => ({ area_desc, locations }));
 
     res.json(result);
   });
