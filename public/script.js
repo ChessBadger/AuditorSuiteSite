@@ -273,7 +273,10 @@ document.addEventListener("DOMContentLoaded", () => {
           // 1) build a map area_desc → [locString,…]
           const areaMap = {};
           const allFetches = items.map((item) => {
-            const locString = typeof item === "object" ? item.name : item;
+            const locString =
+              typeof item === "object"
+                ? `${item.LOC_NUM} – ${item.loc_desc}`
+                : item;
             return fetch(
               `/api/records?location=${encodeURIComponent(locString)}`
             )
