@@ -377,3 +377,25 @@ button[disabled] {
   font-weight: bold;
   z-index: 1000;
 }
+
+/* style.css */
+
+/* indent nested list */
+.sub-list {
+  list-style: none;
+  margin: 0 0 0 1em;
+  padding: 0;
+}
+
+/* hide when collapsed */
+.sub-list.collapsed {
+  display: none;
+}
+
+/* make the header look clickable */
+.area-header {
+  font-weight: bold;
+  cursor: pointer;
+  user-select: none;
+  margin: 0.5em 0;
+}
