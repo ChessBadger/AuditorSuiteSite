@@ -327,8 +327,8 @@ document.addEventListener("DOMContentLoaded", () => {
       .then((r) => r.json())
       .then((data) => {
         data.forEach((r) => {
-          r.deleted = false;
-          r.isNew = false;
+          r.deleted = Boolean(r.deleted);
+          r.isNew = Boolean(r.isNew);
         });
 
         if (!data.length) {
@@ -361,6 +361,26 @@ document.addEventListener("DOMContentLoaded", () => {
           !skuVisible && visibleCols.some((c) => c.key === "PRICE");
 
         const fileName = data[0].file;
+        // Immediately after `const fileName = data[0].file;`:
+        let saveTimeout = null;
+        function saveData() {
+          clearTimeout(saveTimeout);
+          saveTimeout = setTimeout(() => {
+            const toSend = data
+              .filter((r) => !(r.isNew && r.deleted))
+              .map((r) => ({
+                ...r,
+                deleted: r.deleted, // always include true/false
+                isNew: r.isNew, // always include true/false
+              }));
+            fetch(`/api/reports/${encodeURIComponent(fileName)}`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ records: toSend }),
+            }).catch(() => console.warn("Autosave failed"));
+          }, 500);
+        }
+
         recContainer.innerHTML = "";
 
         const btnGroup = document.createElement("div");
@@ -388,6 +408,9 @@ document.addEventListener("DOMContentLoaded", () => {
             newRec.LOC_NUM = data[1].LOC_NUM;
             newRec.area_desc = data[1].area_desc;
             newRec.loc_desc = data[1].loc_desc;
+
+            newRec.deleted = false;
+            newRec.isNew = true;
           } else {
             // (Fallback: if somehow data[] is empty, at least include the columns we know about)
             ALL_COLUMNS.forEach((col) => {
@@ -401,6 +424,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
           // 4) Insert at the front of the array, rebuild, and scroll into view:
           data.unshift(newRec);
+          saveData();
           rebuildTable();
           recContainer.querySelector("table");
         });
@@ -532,6 +556,7 @@ document.addEventListener("DOMContentLoaded", () => {
                         rowData.EXT_PRICE = rowData.PRICE * rowData.EXT_QTY;
                         rowData.FOUND_STAT = "Y";
                         inp.classList.remove("sku-error");
+                        saveData();
                         rebuildTable();
                       } else {
                         rowData.FOUND_STAT = "F";
@@ -550,6 +575,8 @@ document.addEventListener("DOMContentLoaded", () => {
                 inp.addEventListener("input", () => {
                   rowData.EXT_QTY = parseFloat(inp.value) || 0;
                   updateExtended(rowIdx);
+                  saveData();
+
                   rowData.UNITS = rowData.EXT_QTY;
                   rowData.QUANTITY2 = 1;
                 });
@@ -564,6 +591,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 inp.addEventListener("input", () => {
                   rowData.PRICE = parseFloat(inp.value) || 0;
                   updateExtended(rowIdx);
+                  saveData();
                 });
                 td.appendChild(inp);
               } else if (col.key === "CAT_NUM" && catEditable) {
@@ -573,6 +601,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 inp.value = rowData.CAT_NUM || "";
                 inp.addEventListener("change", () => {
                   rowData.CAT_NUM = inp.value;
+                  saveData();
                 });
                 td.appendChild(inp);
               } else if (col.key === "EXT_PRICE") {
@@ -592,6 +621,7 @@ document.addEventListener("DOMContentLoaded", () => {
             delBtn.innerHTML = "×";
             delBtn.classList.add("delete-btn");
             if (rowData.deleted) delBtn.classList.add("deleted");
+            saveData();
             delBtn.addEventListener("click", () => {
               // If this row was just added (isNew), remove it from `data` entirely:
               if (rowData.isNew) {
@@ -600,6 +630,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 if (idx !== -1) {
                   data.splice(idx, 1);
                   rebuildTable();
+                  saveData();
                 }
               } else {
                 // Otherwise, toggle the "deleted" flag and CSS class as before
@@ -607,9 +638,11 @@ document.addEventListener("DOMContentLoaded", () => {
                 if (rowData.deleted) {
                   tr.classList.add("deleted");
                   delBtn.classList.add("deleted");
+                  saveData();
                 } else {
                   tr.classList.remove("deleted");
                   delBtn.classList.remove("deleted");
+                  saveData();
                 }
               }
             });

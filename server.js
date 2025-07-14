@@ -221,6 +221,39 @@ app.get("/api/records", (req, res) => {
   });
 });
 
+// ─── POST /api/reports/:name ───
+// Autosave without marking complete (leaves enabled/completedAt untouched)
+app.post("/api/reports/:name", (req, res) => {
+  const fileName = req.params.name;
+  const filePath = path.join(JSON_DIR, fileName);
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({ error: "Report not found" });
+  }
+  try {
+    // 1) Load the existing JSON
+    const obj = JSON.parse(fs.readFileSync(filePath, "utf8"));
+
+    // 2) Replace only the records array
+    if (Array.isArray(req.body.records)) {
+      obj.records = req.body.records;
+    } else {
+      return res.status(400).json({ error: "Missing records array" });
+    }
+
+    // 3) Atomically write back to disk
+    const tmpPath = filePath + ".tmp";
+    fs.writeFileSync(tmpPath, JSON.stringify(obj, null, 2), "utf8");
+    fs.renameSync(tmpPath, filePath);
+
+    // 4) Let the existing fs.watch(JSON_DIR) reload it into reportCache :contentReference[oaicite:0]{index=0}
+
+    return res.json({ success: true });
+  } catch (err) {
+    console.error("Autosave error:", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── POST /api/reports/:name/complete ───
 app.post("/api/reports/:name/complete", (req, res) => {
   const fileName = req.params.name;
