@@ -177,18 +177,33 @@ app.get("/api/employees", (req, res) => {
 });
 
 // ——— list all locations across enabled reports ———
+// server.js
+
+// ——— list all locations across enabled reports, grouped by area_desc ———
 app.get("/api/locations", (req, res) => {
   loadEnabledReports((err, reps) => {
     if (err) return res.status(500).json({ error: err.message });
-    const locs = new Set();
-    reps.forEach((r) => {
-      r.data.records?.forEach((rec) => {
-        if (rec.LOC_NUM && rec.loc_desc) {
-          locs.add(`${rec.LOC_NUM} - ${rec.loc_desc}`);
+
+    // Build a map: area_desc → Set of "LOC_NUM - loc_desc"
+    const grouped = {};
+    reps.forEach(({ data }) => {
+      data.records?.forEach((rec) => {
+        if (rec.area_desc && rec.LOC_NUM && rec.loc_desc) {
+          grouped[rec.area_desc] = grouped[rec.area_desc] || new Set();
+          grouped[rec.area_desc].add(`${rec.LOC_NUM} - ${rec.loc_desc}`);
         }
       });
     });
-    res.json(Array.from(locs).sort());
+
+    // Turn into sorted array of { area_desc, locations: [] }
+    const result = Object.keys(grouped)
+      .sort()
+      .map((area) => ({
+        area_desc: area,
+        locations: Array.from(grouped[area]).sort(),
+      }));
+
+    res.json(result);
   });
 });
 

@@ -268,50 +268,69 @@ document.addEventListener("DOMContentLoaded", () => {
       .then((r) => r.json())
       .then((items) => {
         listEl.innerHTML = "";
-        items.forEach((item) => {
-          const li = document.createElement("li");
-          const btn = document.createElement("button");
 
-          // support both old (string) and new ({ name, completed }) shapes
-          let name = item;
-          let completed = false;
-          if (typeof item === "object") {
-            name = item.name;
-            completed = item.completed;
-          }
+        if (currentView === "location") {
+          // ── Grouped by area_desc ──
+          items.forEach((group) => {
+            // 1) Area header
+            const areaLi = document.createElement("li");
+            const strong = document.createElement("strong");
+            strong.textContent = group.area_desc;
+            areaLi.appendChild(strong);
+            listEl.appendChild(areaLi);
 
-          if (!name || name.toString().trim() === "") return;
-
-          btn.textContent = name;
-
-          if (completed) {
-            // no more audits: disable & append a checkmark
-            btn.disabled = true;
-            const chk = document.createElement("span");
-            chk.classList.add("checkmark");
-            chk.textContent = " ✓";
-            btn.appendChild(chk);
-          } else {
-            // existing click logic
-            btn.addEventListener("click", () => {
-              if (currentView === "sku") {
-                setView("location");
-              }
-              listEl
-                .querySelectorAll("button")
-                .forEach((b) => b.classList.remove("active"));
-              btn.classList.add("active");
-              if (currentView === "employee") {
-                loadEmployeeLocations(name);
-              } else {
-                showLocationTable(name);
-              }
+            // 2) Locations under that area
+            group.locations.forEach((loc) => {
+              const locLi = document.createElement("li");
+              const btn = document.createElement("button");
+              btn.textContent = loc;
+              btn.addEventListener("click", () => {
+                // clear active state
+                listEl
+                  .querySelectorAll("button")
+                  .forEach((b) => b.classList.remove("active"));
+                btn.classList.add("active");
+                showLocationTable(loc);
+              });
+              locLi.appendChild(btn);
+              listEl.appendChild(locLi);
             });
-          }
+          });
+        } else {
+          // ── “By Employee” as before ──
+          items.forEach((item) => {
+            const li = document.createElement("li");
+            const btn = document.createElement("button");
 
-          li.appendChild(btn);
-          listEl.appendChild(li);
-        });
+            let name = item;
+            let completed = false;
+            if (typeof item === "object") {
+              name = item.name;
+              completed = item.completed;
+            }
+            if (!name || !name.toString().trim()) return;
+
+            btn.textContent = name;
+            if (completed) {
+              btn.disabled = true;
+              const chk = document.createElement("span");
+              chk.classList.add("checkmark");
+              chk.textContent = " ✓";
+              btn.appendChild(chk);
+            } else {
+              btn.addEventListener("click", () => {
+                listEl
+                  .querySelectorAll("button")
+                  .forEach((b) => b.classList.remove("active"));
+                btn.classList.add("active");
+                loadEmployeeLocations(name);
+              });
+            }
+
+            li.appendChild(btn);
+            listEl.appendChild(li);
+          });
+        }
       })
       .catch(() => {
         listEl.innerHTML = "<li>Error loading items</li>";
