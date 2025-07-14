@@ -358,3 +358,22 @@ button[disabled] {
 #jump-to-top:hover {
   background: var(--primary-hover);
 }
+
+/* hidden helper */
+.hidden {
+  display: none;
+}
+
+/* visible banner */
+#server-status-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  background: #c0392b; /* dark red */
+  color: white;
+  text-align: center;
+  padding: 0.5rem;
+  font-weight: bold;
+  z-index: 1000;
+}

@@ -11,6 +11,38 @@ document.addEventListener("DOMContentLoaded", () => {
   const btnSKU = document.getElementById("btn-sku");
   const skuInput = document.getElementById("sku-input");
 
+  const banner = document.getElementById("server-status-banner");
+
+  function showBanner() {
+    banner.classList.remove("hidden");
+  }
+  function hideBanner() {
+    banner.classList.add("hidden");
+  }
+
+  async function checkServer() {
+    // create a controller and abort after 2s
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 2000);
+
+    try {
+      const res = await fetch("/ping", {
+        cache: "no-cache",
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+      if (res.ok) hideBanner();
+      else showBanner();
+    } catch (err) {
+      clearTimeout(timeoutId);
+      showBanner();
+    }
+  }
+
+  // run on load, then every 3s
+  window.addEventListener("load", checkServer);
+  setInterval(checkServer, 3000);
+
   const currencyFormatter = new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",

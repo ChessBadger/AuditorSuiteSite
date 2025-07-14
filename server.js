@@ -192,6 +192,11 @@ app.get("/api/locations", (req, res) => {
   });
 });
 
+// near the top, after your other route definitions
+app.get("/ping", (req, res) => {
+  res.sendStatus(200);
+});
+
 // ——— fetch records filtered by employee, location, or SKU (only from enabled) ———
 app.get("/api/records", (req, res) => {
   const { employee, location, sku } = req.query;
