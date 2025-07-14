@@ -268,50 +268,89 @@ document.addEventListener("DOMContentLoaded", () => {
       .then((r) => r.json())
       .then((items) => {
         listEl.innerHTML = "";
-        items.forEach((item) => {
-          const li = document.createElement("li");
-          const btn = document.createElement("button");
 
-          // support both old (string) and new ({ name, completed }) shapes
-          let name = item;
-          let completed = false;
-          if (typeof item === "object") {
-            name = item.name;
-            completed = item.completed;
-          }
+        if (currentView === "location") {
+          // 1) build a map area_desc → [locString,…]
+          const areaMap = {};
+          const allFetches = items.map((item) => {
+            const locString = typeof item === "object" ? item.name : item;
+            return fetch(
+              `/api/records?location=${encodeURIComponent(locString)}`
+            )
+              .then((r) => r.json())
+              .then((data) => {
+                const area = data[0]?.area_desc || "Unknown Area";
+                if (!areaMap[area]) areaMap[area] = [];
+                areaMap[area].push(locString);
+              });
+          });
 
-          if (!name || name.toString().trim() === "") return;
+          // 2) once every area’s records are loaded, render groups
+          Promise.all(allFetches).then(() => {
+            Object.keys(areaMap)
+              .sort()
+              .forEach((area) => {
+                // area header
+                const headerLi = document.createElement("li");
+                const bold = document.createElement("strong");
+                bold.textContent = area;
+                headerLi.appendChild(bold);
+                listEl.appendChild(headerLi);
 
-          btn.textContent = name;
+                // each location under its area
+                areaMap[area].sort().forEach((locString) => {
+                  const li = document.createElement("li");
+                  const btn = document.createElement("button");
+                  btn.textContent = locString;
+                  btn.addEventListener("click", () => {
+                    listEl
+                      .querySelectorAll("button")
+                      .forEach((b) => b.classList.remove("active"));
+                    btn.classList.add("active");
+                    showLocationTable(locString);
+                  });
+                  li.appendChild(btn);
+                  listEl.appendChild(li);
+                });
+              });
+          });
+        } else {
+          // employee (and SKU) view – exact original logic
+          items.forEach((item) => {
+            const name = typeof item === "object" ? item.name : item;
+            const completed = typeof item === "object" ? item.completed : false;
+            if (!name || !name.toString().trim()) return;
 
-          if (completed) {
-            // no more audits: disable & append a checkmark
-            btn.disabled = true;
-            const chk = document.createElement("span");
-            chk.classList.add("checkmark");
-            chk.textContent = " ✓";
-            btn.appendChild(chk);
-          } else {
-            // existing click logic
-            btn.addEventListener("click", () => {
-              if (currentView === "sku") {
-                setView("location");
-              }
-              listEl
-                .querySelectorAll("button")
-                .forEach((b) => b.classList.remove("active"));
-              btn.classList.add("active");
-              if (currentView === "employee") {
-                loadEmployeeLocations(name);
-              } else {
-                showLocationTable(name);
-              }
-            });
-          }
+            const li = document.createElement("li");
+            const btn = document.createElement("button");
+            btn.textContent = name;
 
-          li.appendChild(btn);
-          listEl.appendChild(li);
-        });
+            if (completed) {
+              btn.disabled = true;
+              const chk = document.createElement("span");
+              chk.classList.add("checkmark");
+              chk.textContent = " ✓";
+              btn.appendChild(chk);
+            } else {
+              btn.addEventListener("click", () => {
+                if (currentView === "sku") setView("location");
+                listEl
+                  .querySelectorAll("button")
+                  .forEach((b) => b.classList.remove("active"));
+                btn.classList.add("active");
+
+                if (currentView === "employee") {
+                  loadEmployeeLocations(name);
+                } else {
+                  showLocationTable(name);
+                }
+              });
+            }
+
+            li.appendChild(btn);
+            listEl.appendChild(li);
+          });
+        }
       })
       .catch(() => {
         listEl.innerHTML = "<li>Error loading items</li>";
