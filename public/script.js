@@ -269,23 +269,34 @@ document.addEventListener("DOMContentLoaded", () => {
       .then((items) => {
         listEl.innerHTML = "";
 
+        // ── Grouped by area_desc, with collapsible sections ──
         if (currentView === "location") {
-          // ── Grouped by area_desc ──
+          listEl.innerHTML = ""; // clear loading…
           items.forEach((group) => {
-            // 1) Area header
-            const areaLi = document.createElement("li");
-            const strong = document.createElement("strong");
-            strong.textContent = group.area_desc;
-            areaLi.appendChild(strong);
-            listEl.appendChild(areaLi);
+            const groupLi = document.createElement("li");
+            groupLi.classList.add("area-group");
 
-            // 2) Locations under that area
+            // header
+            const header = document.createElement("div");
+            header.classList.add("area-header");
+            const arrow = document.createElement("span");
+            arrow.classList.add("arrow");
+            // ← collapsed by default:
+            arrow.textContent = "►";
+            header.appendChild(arrow);
+            const title = document.createElement("strong");
+            title.textContent = group.area_desc;
+            header.appendChild(title);
+            groupLi.appendChild(header);
+
+            // nested list, collapsed initially:
+            const nestedUl = document.createElement("ul");
+            nestedUl.classList.add("nested-locations", "hidden");
             group.locations.forEach((loc) => {
               const locLi = document.createElement("li");
               const btn = document.createElement("button");
               btn.textContent = loc;
               btn.addEventListener("click", () => {
-                // clear active state
                 listEl
                   .querySelectorAll("button")
                   .forEach((b) => b.classList.remove("active"));
@@ -293,8 +304,19 @@ document.addEventListener("DOMContentLoaded", () => {
                 showLocationTable(loc);
               });
               locLi.appendChild(btn);
-              listEl.appendChild(locLi);
+              nestedUl.appendChild(locLi);
             });
+            groupLi.appendChild(nestedUl);
+
+            // toggle on click
+            header.addEventListener("click", () => {
+              nestedUl.classList.toggle("hidden");
+              arrow.textContent = nestedUl.classList.contains("hidden")
+                ? "►"
+                : "▼";
+            });
+
+            listEl.appendChild(groupLi);
           });
         } else {
           // ── “By Employee” as before ──
