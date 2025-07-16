@@ -270,24 +270,22 @@ document.addEventListener("DOMContentLoaded", () => {
         listEl.innerHTML = "";
 
         if (currentView === "location") {
-          // ── Grouped by area_desc, collapsible ──
+          // ── Grouped by area_desc ──
           items.forEach((group) => {
-            // 1) Create the parent <li> & header
-            const groupLi = document.createElement("li");
-            const header = document.createElement("div");
-            header.classList.add("area-header");
-            header.textContent = group.area_desc;
-            groupLi.appendChild(header);
+            // 1) Area header
+            const areaLi = document.createElement("li");
+            const strong = document.createElement("strong");
+            strong.textContent = group.area_desc;
+            areaLi.appendChild(strong);
+            listEl.appendChild(areaLi);
 
-            // 2) Create nested <ul> for locations, start collapsed
-            const subList = document.createElement("ul");
-            subList.classList.add("sub-list", "collapsed");
+            // 2) Locations under that area
             group.locations.forEach((loc) => {
               const locLi = document.createElement("li");
               const btn = document.createElement("button");
               btn.textContent = loc;
               btn.addEventListener("click", () => {
-                // mark active
+                // clear active state
                 listEl
                   .querySelectorAll("button")
                   .forEach((b) => b.classList.remove("active"));
@@ -295,19 +293,43 @@ document.addEventListener("DOMContentLoaded", () => {
                 showLocationTable(loc);
               });
               locLi.appendChild(btn);
-              subList.appendChild(locLi);
+              listEl.appendChild(locLi);
             });
-            groupLi.appendChild(subList);
-
-            // 3) Toggle collapse on header click
-            header.addEventListener("click", () => {
-              subList.classList.toggle("collapsed");
-            });
-
-            listEl.appendChild(groupLi);
           });
         } else {
-          // … your existing “By Employee” code …
+          // ── “By Employee” as before ──
+          items.forEach((item) => {
+            const li = document.createElement("li");
+            const btn = document.createElement("button");
+
+            let name = item;
+            let completed = false;
+            if (typeof item === "object") {
+              name = item.name;
+              completed = item.completed;
+            }
+            if (!name || !name.toString().trim()) return;
+
+            btn.textContent = name;
+            if (completed) {
+              btn.disabled = true;
+              const chk = document.createElement("span");
+              chk.classList.add("checkmark");
+              chk.textContent = " ✓";
+              btn.appendChild(chk);
+            } else {
+              btn.addEventListener("click", () => {
+                listEl
+                  .querySelectorAll("button")
+                  .forEach((b) => b.classList.remove("active"));
+                btn.classList.add("active");
+                loadEmployeeLocations(name);
+              });
+            }
+
+            li.appendChild(btn);
+            listEl.appendChild(li);
+          });
         }
       })
       .catch(() => {
