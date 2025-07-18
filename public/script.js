@@ -219,6 +219,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     table.appendChild(tbody);
+    makeTableSortable(table);
     return table;
   }
 
@@ -259,6 +260,55 @@ document.addEventListener("DOMContentLoaded", () => {
     recContainer.innerHTML =
       '<p class="placeholder">Select an item to view details</p>';
     loadSidebarItems();
+  }
+
+  // 1) Sort helper: call this on any <table class="record-table">
+  /**
+   * Makes a <table class="record-table"> sortable, even if some cells contain <input> elements.
+   */
+  function makeTableSortable(table) {
+    // helper: extract the “value” from a cell
+    function getCellValue(cell) {
+      const input = cell.querySelector("input");
+      if (input) return input.value.trim();
+      return cell.textContent.trim();
+    }
+
+    const headers = table.querySelectorAll("thead th");
+    headers.forEach((header, colIndex) => {
+      let asc = true;
+      header.style.cursor = "pointer";
+      header.addEventListener("click", () => {
+        const tbody = table.tBodies[0];
+        const rows = Array.from(tbody.rows);
+        // pull out any “total” row so it stays at the bottom
+        let totalRow = null;
+        const ti = rows.findIndex((r) =>
+          r.classList.contains("record-total-row")
+        );
+        if (ti !== -1) totalRow = rows.splice(ti, 1)[0];
+
+        rows.sort((rowA, rowB) => {
+          const aVal = getCellValue(rowA.cells[colIndex]);
+          const bVal = getCellValue(rowB.cells[colIndex]);
+          // try numeric
+          const aNum = parseFloat(aVal.replace(/[^0-9.-]/g, ""));
+          const bNum = parseFloat(bVal.replace(/[^0-9.-]/g, ""));
+          let diff;
+          if (!isNaN(aNum) && !isNaN(bNum)) {
+            diff = aNum - bNum;
+          } else {
+            diff = aVal.localeCompare(bVal, undefined, { numeric: true });
+          }
+          return asc ? diff : -diff;
+        });
+
+        // re‑append in order, then the total row
+        rows.forEach((r) => tbody.appendChild(r));
+        if (totalRow) tbody.appendChild(totalRow);
+        asc = !asc;
+      });
+    });
   }
 
   function loadSidebarItems() {
@@ -740,6 +790,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
           table.appendChild(tbody);
           recContainer.appendChild(table);
+          makeTableSortable(table);
         }
 
         function updateExtended(rowIdx) {
