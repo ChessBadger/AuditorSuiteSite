@@ -65,7 +65,7 @@ input {
 /*------------- App Shell -------------*/
 .container {
   display: flex;
-  width: min(1200px, 100%);
+  width: min(1400px, 100%);
   height: calc(100vh - 5.25rem);
   margin: 0.75rem auto 1rem;
   background: var(--surface);
