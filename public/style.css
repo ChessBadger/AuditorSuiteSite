@@ -1,125 +1,264 @@
-/*------------- Variables -------------*/
+/* =============================
+   Modern Light Theme — Tablet Optimized
+   Drop‑in replacement for style.css
+   (No JS changes required)
+   ============================= */
+
+/*------------- Design Tokens -------------*/
 :root {
-  /* Primary “brand” red */
-  --primary: rgba(153, 0, 0, 1);
-  --primary-hover: rgba(153, 0, 0, 0.85);
+  /* Brand */
+  --brand: #9a0b0b; /* primary red */
+  --brand-600: #870a0a; /* hover */
+  --brand-50: #fff5f5; /* subtle tints */
 
-  /* Neutral accents */
-  --light-bg: #f9f9f9;
-  --bg: #ffffff;
-  --text: #1f2937;
-  --border: #e5e7eb;
+  /* Neutrals */
+  --bg: #ffffff; /* page background */
+  --surface: #fafafa; /* panels/surfaces */
+  --text: #111827; /* body text */
+  --muted: #6b7280; /* secondary text */
+  --border: #e5e7eb; /* lines */
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 8px 24px rgba(0, 0, 0, 0.06);
 
-  /* Table zebra stripe */
-  --zebra: #f4f4f4;
+  /* Tables */
+  --zebra: #f6f7f9;
+
+  /* Focus */
+  --focus: 0 0 0 3px rgba(154, 11, 11, 0.15);
+
+  /* Sizing */
+  --radius: 12px;
+  --radius-sm: 8px;
 }
 
-/*------------- Base & Layout -------------*/
+/*------------- Base -------------*/
 * {
   box-sizing: border-box;
 }
+html,
+body {
+  height: 100%;
+}
 body {
   margin: 0;
-  padding: 0.25rem;
-  font-family: "Inter", sans-serif;
-  background: var(--bg);
   color: var(--text);
-}
-h1 {
-  font-size: 1.75rem;
-  text-align: center;
-  margin: 1rem 0;
+  background: var(--bg);
+  font-family: "Inter", system-ui, -apple-system, Segoe UI, Roboto, Arial,
+    sans-serif;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-/* container + sidebar toggle */
+h1 {
+  font-size: clamp(1.25rem, 1.2rem + 1vw, 1.75rem);
+  text-align: center;
+  margin: 1rem 0 0.5rem;
+  letter-spacing: 0.2px;
+}
+
+/* Make interactive elements comfortable on tablets */
+button,
+input {
+  font-size: 16px; /* avoids iOS/Android zoom */
+}
+
+/*------------- App Shell -------------*/
 .container {
   display: flex;
-  width: 100%;
-  height: calc(100vh - 4rem);
-  margin: 0.5rem;
+  width: min(1200px, 100%);
+  height: calc(100vh - 5.25rem);
+  margin: 0.75rem auto 1rem;
+  background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius);
   overflow: hidden;
-  transition: width 0.2s ease;
+  box-shadow: var(--shadow);
+  transition: grid-template-columns 0.2s ease, width 0.2s ease;
 }
+
+/* Sidebar toggle (hamburger) */
 .sidebar-toggle {
-  position: absolute;
-  top: 1rem;
-  left: 1rem;
-  background: var(--primary);
+  position: fixed;
+  top: 0.75rem;
+  left: 0.75rem;
+  z-index: 10;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px; /* touch target */
+  padding: 0;
+  background: var(--brand);
   color: #fff;
   border: none;
-  border-radius: 4px;
-  padding: 0.5rem;
-  font-size: 1.25rem;
-  cursor: pointer;
-  z-index: 5;
+  border-radius: 10px;
+  box-shadow: var(--shadow);
 }
+.sidebar-toggle:active {
+  transform: translateY(1px);
+}
+.sidebar-toggle:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+}
+
+/* Collapsed state driven by JS (class on .container) */
 .container.collapsed .sidebar {
   width: 0;
-  overflow: hidden;
+  min-width: 0;
+  padding: 0;
+  border-right: none;
 }
 .container.collapsed .content {
   flex: 1 1 100%;
 }
 
-/*------------- View Toggle -------------*/
+/*------------- Top Controls -------------*/
 .view-toggle {
-  text-align: center;
-  margin-bottom: 0.75rem;
+  width: min(1200px, 100%);
+  margin: 0.5rem auto 0;
+  padding: 0.5rem 0.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem 0.5rem;
+  flex-wrap: wrap;
 }
 .view-toggle button {
-  margin: 0 0.25rem;
-  padding: 0.5rem 1rem;
+  appearance: none;
   border: 1px solid var(--border);
   background: var(--bg);
-  border-radius: 4px;
+  color: var(--text);
+  border-radius: 999px;
+  padding: 0.55rem 1rem;
   font-weight: 600;
-  cursor: pointer;
-  transition: background 0.2s, border-color 0.2s;
+  letter-spacing: 0.1px;
+  transition: background 0.2s, border-color 0.2s, box-shadow 0.2s,
+    transform 0.04s;
+}
+.view-toggle button:hover {
+  background: var(--brand-50);
+  border-color: #f1c9c9;
+}
+.view-toggle button:active {
+  transform: translateY(1px);
 }
 .view-toggle button.active {
-  background: var(--primary);
+  background: var(--brand);
   color: #fff;
-  border-color: var(--primary);
+  border-color: var(--brand);
+}
+.view-toggle button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+}
+
+/* SKU search cluster */
+.sku-search {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 0;
+  margin-left: 0.5rem;
+}
+.sku-search input {
+  width: 15ch;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--border);
+  border-right: none;
+  border-radius: 999px 0 0 999px;
+  background: var(--bg);
+}
+.sku-search button {
+  padding: 0.6rem 0.9rem;
+  border: 1px solid var(--brand);
+  border-radius: 0 999px 999px 0;
+  background: var(--brand);
+  color: #fff;
 }
 
 /*------------- Sidebar -------------*/
 .sidebar {
-  width: 240px;
-  background: var(--light-bg);
+  width: 280px; /* wider for touch */
+  min-width: 220px;
+  background: var(--bg);
   border-right: 1px solid var(--border);
   overflow-y: auto;
 }
 .sidebar ul {
   list-style: none;
-  padding: 0.5rem;
   margin: 0;
+  padding: 0.5rem;
 }
 .sidebar li + li {
   margin-top: 0.25rem;
 }
-.sidebar button {
-  width: 100%;
-  padding: 0.5rem;
-  background: none;
-  border: none;
-  text-align: left;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: background 0.2s, color 0.2s;
+
+/* Group headers (locations by area) */
+.area-group {
+  margin: 0.25rem 0 0.5rem;
 }
-.sidebar button:hover,
-.sidebar button.active {
-  background: var(--primary-hover);
-  color: #fff;
+.area-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.5rem;
+  font-weight: 700;
+  cursor: pointer;
+  user-select: none;
+  border-radius: var(--radius-sm);
+}
+.area-header:hover {
+  background: var(--surface);
+}
+.area-header .arrow {
+  width: 1.1em;
+  text-align: center;
+  color: var(--muted);
 }
 
-/*------------- “By Employee” → Locations list -------------*/
+.nested-locations {
+  list-style: none;
+  margin: 0.25rem 0 0 1.25rem;
+  padding: 0;
+}
+.nested-locations.hidden {
+  display: none;
+}
+
+/* Sidebar item buttons */
+.sidebar button {
+  width: 100%;
+  padding: 0.6rem 0.7rem;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  text-align: left;
+  cursor: pointer;
+}
+.sidebar button:hover {
+  background: var(--brand-50);
+  border-color: #f6caca;
+}
+.sidebar button.active {
+  background: var(--brand);
+  color: #fff;
+  border-color: var(--brand);
+}
+button[disabled] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.checkmark {
+  color: #10b981;
+  margin-left: 0.25em;
+  font-weight: 700;
+}
+
+/*------------- Record List (By Employee) -------------*/
 .record-list {
   list-style: none;
-  padding: 0;
   margin: 0.5rem 0;
+  padding: 0;
 }
 .record-list li + li {
   margin-top: 0.5rem;
@@ -127,305 +266,272 @@ h1 {
 .record-list button {
   display: block;
   width: 100%;
-  padding: 0.75rem 1rem;
+  padding: 0.9rem 1rem;
   background: var(--bg);
   border: 1px solid var(--border);
   border-left-width: 4px;
   border-left-color: transparent;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   text-align: left;
   font-size: 1rem;
-  cursor: pointer;
-  transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.03);
+  transition: background 0.2s, border-color 0.2s, box-shadow 0.2s,
+    transform 0.04s;
 }
 .record-list button:hover {
-  background: var(--light-bg);
-  border-left-color: var(--primary);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+  background: var(--surface);
+  border-left-color: var(--brand);
+  box-shadow: var(--shadow);
+}
+.record-list button:active {
+  transform: translateY(1px);
 }
 .record-list button.active {
-  background: var(--primary);
+  background: var(--brand);
   color: #fff;
-  border-left-color: var(--primary);
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+  border-left-color: var(--brand);
+  box-shadow: var(--shadow);
 }
 
-/*------------- Main Content (records, table, etc.) -------------*/
+/*------------- Main Content -------------*/
 .content {
   flex: 1;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  min-width: 0;
 }
 #record-container {
   flex: 1;
-  padding: 0.5rem;
+  padding: 0.75rem;
   overflow: auto;
+  background: var(--bg);
+}
+.placeholder {
+  color: var(--muted);
+  text-align: center;
+  padding: 2rem 0;
 }
 
-/* You can drop all the duplicate table/input styles
-     and keep just the essential table rules below. */
-.record-header,
-.complete-btn {
+/* Headers & action bar inside content */
+.record-header {
   position: sticky;
   top: 0;
-  z-index: 2;
+  z-index: 5;
   background: var(--bg);
   padding: 0.75rem 1rem;
   border-bottom: 1px solid var(--border);
+  font-weight: 700;
 }
+
+/* Primary action buttons */
 .complete-btn {
-  font-size: 1.1rem;
-  margin-bottom: 0.5rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  font-size: 1rem;
+  font-weight: 700;
+  padding: 0.6rem 1rem;
   color: #fff;
-  background: var(--primary);
-  border: none;
-  border-radius: 4px;
+  background: var(--brand);
+  border: 1px solid var(--brand);
+  border-radius: var(--radius-sm);
   cursor: pointer;
-  transition: opacity 0.2s;
+  transition: background 0.2s, box-shadow 0.2s, transform 0.04s;
 }
 .complete-btn:hover {
-  opacity: 0.9;
+  background: var(--brand-600);
+}
+.complete-btn:active {
+  transform: translateY(1px);
+}
+.complete-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
 }
 
-/* ======================================================
-   OVERRIDES: force table and inputs to shrink‐to‐fit
-   ====================================================== */
-
-/* 1) Un‐force the 800px minimum and horizontal scroll on the table itself */
+/*------------- Tables -------------*/
 .record-table {
-  /* cancel the old “min-width: 800px” */
-  min-width: 0 !important;
-  /* cancel the old “overflow-x: auto” so the table won't scroll by itself */
-  overflow-x: visible !important;
-  /* keep table‐layout: auto so columns size to content */
-  table-layout: auto !important;
-  /* never let it exceed its parent container’s width */
-  max-width: 100% !important;
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: auto;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden; /* clips sticky header corners */
 }
-
-/* 2) Let cells break/wrap instead of nowrap */
-.record-table th,
-.record-table td {
-  /* cancel the old no-wrap */
-  white-space: normal !important;
-}
-
-/* 3) Force each <input> to size exactly to its intrinsic content */
-.record-table td input[type="text"],
-.record-table td input[type="number"] {
-  box-sizing: border-box; /* keep padding inside the width */
-  /* 
-    width: max-content causes the input to shrink‐to‐fit exactly
-    the current value (plus its padding). 
-  */
-  width: max-content !important;
-  /* still leave at least ~4 characters of space when it's empty */
-  min-width: 4ch !important;
-  /* never let it overflow its cell if the cell is forced narrower */
-  max-width: 100% !important;
-  /* you can adjust padding if you want a more “tight” input */
-  padding: 0.25rem 0.5rem !important;
-
-  font-size: 16px;
-}
-
-/* 4) (Optional) If any <input> is still too wide, you can force it
-      to display inline‐block and drop any extra margin/padding */
-.record-table td input[type="text"],
-.record-table td input[type="number"] {
-  display: inline-block !important;
-  margin: 0 !important;
-  /* you already have font-size inherited; if you want to shrink it more, 
-     consider reducing font-size here—but usually 1rem is fine. */
-}
-
-.record-table th,
-.record-table td {
+.record-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 6;
+  background: linear-gradient(0deg, var(--brand) 0%, #a61515 100%);
+  color: #fff;
+  font-weight: 700;
   padding: 0.75rem 1rem;
   text-align: center;
   white-space: nowrap;
-  font-size: 1rem;
-  border-bottom: 1px solid var(--border);
+  user-select: none;
 }
-.record-table th {
-  background: var(--primary);
-  color: #fff;
-  position: sticky;
-  top: calc(0.75rem + 1.5rem); /* below btn+header */
-  z-index: 50;
+/* Sortability cue (JS already adds pointer) */
+.record-table thead th {
+  cursor: pointer;
+}
+.record-table thead th:hover {
+  filter: brightness(0.98);
+}
+
+.record-table tbody td {
+  padding: 0.65rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  text-align: center;
+  vertical-align: middle;
+  white-space: nowrap;
 }
 .record-table tbody tr:nth-child(even) {
   background: var(--zebra);
 }
+
+/* Total row pinned to bottom when possible */
 .record-total-row {
-  background: var(--light-bg);
-  font-weight: 600;
+  background: var(--surface);
+  font-weight: 700;
   position: sticky;
   bottom: 0;
 }
 
-.record-header {
-  font-weight: bold;
-}
-
-/* ===== New for delete/added rows ===== */
+/* Delete column */
 .record-table th.delete-col,
 .record-table td.delete-col {
   width: 3rem;
 }
-
 .delete-btn {
   background: transparent;
   border: none;
-  font-size: 1.25rem;
+  color: var(--brand-600);
+  font-size: 1.35rem;
+  line-height: 1;
   cursor: pointer;
-  color: var(--primary-hover);
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
 }
-
+.delete-btn:hover {
+  background: var(--brand-50);
+}
 .delete-btn.deleted {
-  color: #999;
+  color: #9ca3af;
 }
-
 .record-table tr.deleted {
-  opacity: 0.5;
+  opacity: 0.55;
   text-decoration: line-through;
 }
-.view-toggle {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-bottom: 0.75rem;
-}
-.sku-search {
-  margin-left: 1rem;
-}
-.sku-search input {
-  padding: 0.5rem;
+
+/* Inputs inside table */
+.record-table td input[type="text"],
+.record-table td input[type="number"] {
+  display: inline-block;
+  width: max-content;
+  min-width: 6ch;
+  max-width: 100%;
+  padding: 0.4rem 0.5rem;
   border: 1px solid var(--border);
-  border-radius: 4px 0 0 4px;
+  border-radius: 10px;
+  background: var(--bg);
 }
-.sku-search button {
-  padding: 0.5rem 1rem;
-  border: 1px solid var(--border);
-  border-left: none;
-  border-radius: 0 4px 4px 0;
-  background: var(--primary);
-  color: #fff;
-  cursor: pointer;
+.record-table td input[type="text"]:focus,
+.record-table td input[type="number"]:focus {
+  outline: none;
+  box-shadow: var(--focus);
+  border-color: #d1d5db;
 }
-
-.logo {
-  position: fixed; /* or absolute if you want it only within a container */
-  top: 12px; /* distance from the very top edge */
-  right: 12px; /* distance from the right edge */
-  max-height: 50px; /* adjust this to get the perfect logo height */
-  width: auto; /* preserve aspect ratio */
-  z-index: 1000; /* guarantees it floats above other elements */
-}
-
-/* fade out completed buttons */
-button[disabled] {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-/* green checkmark spacing */
-.checkmark {
-  color: green;
-  margin-left: 0.25em;
-  font-weight: bold;
-}
-
-/* Highlight SKU inputs with no match */
 .sku-error {
-  border: 2px solid red;
+  border: 2px solid #ef4444 !important;
 }
 
-/* Jump-to-Top button */
+/* Jump‑to‑Top: make it a floating FAB for tablets */
 #jump-to-top {
-  display: none; /* hidden until scrolled */
-  margin: 1rem auto; /* spacing and centered */
-  padding: 0.5rem 1rem;
-  font-size: 1rem;
-  background: var(--primary);
-  color: #fff;
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  display: none; /* JS toggles */
+  padding: 0.75rem 1rem;
   border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: background 0.2s;
+  border-radius: 999px;
+  background: var(--brand);
+  color: #fff;
+  box-shadow: var(--shadow);
+  z-index: 20;
 }
 #jump-to-top:hover {
-  background: var(--primary-hover);
+  background: var(--brand-600);
 }
 
-/* hidden helper */
+/* Connection banner */
+#server-status-banner {
+  position: fixed;
+  inset: 0 auto auto 0;
+  width: 100%;
+  background: #c0392b;
+  color: #fff;
+  text-align: center;
+  padding: 0.5rem;
+  font-weight: 800;
+  z-index: 50;
+}
 .hidden {
   display: none;
 }
 
-/* visible banner */
-#server-status-banner {
+/* Logo */
+.logo {
   position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  background: #c0392b; /* dark red */
-  color: white;
-  text-align: center;
-  padding: 0.5rem;
-  font-weight: bold;
-  z-index: 1000;
+  top: 12px;
+  right: 12px;
+  width: auto;
+  max-height: 48px;
+  z-index: 9;
+  opacity: 0.95;
+}
+@media (max-width: 480px) {
+  .logo {
+    max-height: 36px;
+  }
 }
 
-/* style.css */
-
-/* indent nested list */
-.sub-list {
-  list-style: none;
-  margin: 0 0 0 1em;
-  padding: 0;
+/* Accessibility & motion */
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+}
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
 }
 
-/* hide when collapsed */
-.sub-list.collapsed {
-  display: none;
+/*---------- Tablet Responsive Tweaks ----------*/
+@media (max-width: 1024px) {
+  .sidebar {
+    width: 260px;
+  }
+  .sku-search input {
+    width: 13ch;
+  }
+}
+@media (max-width: 840px) {
+  .container {
+    height: calc(100vh - 5.75rem);
+  }
+  .sku-search {
+    width: 100%;
+    justify-content: center;
+  }
 }
 
-/* make the header look clickable */
-.area-header {
-  font-weight: bold;
-  cursor: pointer;
-  user-select: none;
-  margin: 0.5em 0;
-}
-/* Collapsible area groups in sidebar */
-.area-group {
-  margin-bottom: 0.5rem;
-}
-
-.area-header {
-  display: flex;
-  align-items: center;
-  cursor: pointer;
-  user-select: none;
-  padding: 0.25rem 0;
-}
-
-.area-header .arrow {
-  display: inline-block;
-  margin-right: 0.5rem;
-  transition: transform 0.2s ease;
-}
-
-/* nested list of locations, indented */
-.nested-locations {
-  list-style: none;
-  margin: 0.25rem 0 0 1.5rem;
-  padding: 0;
-}
-
-/* hide when collapsed */
-.nested-locations.hidden {
-  display: none;
+/* Ensure long content wraps without blowing layout */
+.record-table th,
+.record-table td {
+  white-space: normal;
 }
