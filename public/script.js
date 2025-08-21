@@ -332,7 +332,7 @@ document.addEventListener("DOMContentLoaded", () => {
             const arrow = document.createElement("span");
             arrow.classList.add("arrow");
             // ← collapsed by default:
-            arrow.textContent = "►";
+            arrow.textContent = "";
             header.appendChild(arrow);
             const title = document.createElement("strong");
             title.textContent = group.area_desc;
@@ -362,8 +362,8 @@ document.addEventListener("DOMContentLoaded", () => {
             header.addEventListener("click", () => {
               nestedUl.classList.toggle("hidden");
               arrow.textContent = nestedUl.classList.contains("hidden")
-                ? "►"
-                : "▼";
+                ? ""
+                : "↓";
             });
 
             listEl.appendChild(groupLi);
