@@ -535,3 +535,22 @@ button[disabled] {
 .record-table td {
   white-space: normal;
 }
+
+/* Target the description column */
+
+.record-table td.description,
+.record-table th.description {
+  max-width: 4000px; /* adjust as needed */
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
+  white-space: normal; /* ensures wrapping */
+}
+
+.record-table {
+  table-layout: fixed; /* enforces width distribution */
+  width: 100%;
+}
+.record-table td {
+  text-overflow: ellipsis;
+  overflow: hidden;
+}
