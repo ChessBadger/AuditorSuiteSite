@@ -562,3 +562,21 @@ button[disabled] {
   width: 100%;
   table-layout: fixed;
 }
+
+.description-cell {
+  display: inline-block;
+  max-width: 200px; /* default preview width */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.description-cell.expanded {
+  white-space: normal; /* allow wrapping */
+  max-width: none; /* no restriction */
+  background: var(--surface);
+  padding: 0.25rem;
+  border-radius: 6px;
+  box-shadow: var(--shadow);
+}

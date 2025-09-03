@@ -731,6 +731,16 @@ document.addEventListener("DOMContentLoaded", () => {
                 const extVal = rowData.EXT_QTY * rowData.PRICE || 0;
                 td.textContent = currencyFormatter.format(extVal);
                 grandTotal += extVal;
+              } else if (col.key === "DESCRIPTIO") {
+                const span = document.createElement("span");
+                span.textContent = rowData[col.key] ?? "";
+                span.classList.add("description-cell");
+
+                span.addEventListener("click", () => {
+                  span.classList.toggle("expanded");
+                });
+
+                td.appendChild(span);
               } else {
                 td.textContent = rowData[col.key] ?? "";
               }
