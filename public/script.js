@@ -209,7 +209,7 @@ document.addEventListener("DOMContentLoaded", () => {
       trTot.classList.add("record-total-row");
       const tdLabel = document.createElement("td");
       tdLabel.textContent = "Grand Total";
-      tdLabel.colSpan = visibleCols.length;
+      tdLabel.colSpan = visibleCols.length - 1;
       trTot.appendChild(tdLabel);
 
       const tdTotal = document.createElement("td");

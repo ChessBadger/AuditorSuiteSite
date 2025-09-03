@@ -554,3 +554,11 @@ button[disabled] {
   text-overflow: ellipsis;
   overflow: hidden;
 }
+
+.record-table thead,
+.record-table tbody,
+.record-table tr {
+  display: table; /* keep proper table layout */
+  width: 100%;
+  table-layout: fixed;
+}
