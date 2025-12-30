@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Report Exports</title>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="report.css" />
+  </head>
+  <body>
+    <img
+      src="H-Badger main.png"
+      alt="Badger Inventory Service Logo"
+      class="logo"
+    />
+    <h1>Report Exports</h1>
+
+    <div class="row" style="margin-bottom: 12px">
+      <button id="btn-refresh" class="btn">Refresh</button>
+      <span id="status" class="muted"></span>
+    </div>
+
+    <div class="split">
+      <aside class="panel">
+        <h3 style="margin-top: 0">Areas</h3>
+        <ul id="area-list" class="list"></ul>
+      </aside>
+
+      <main class="panel">
+        <div id="content">
+          <p class="muted">Select an area to view locations + totals.</p>
+        </div>
+      </main>
+    </div>
+
+    <script src="report.js"></script>
+  </body>
+</html>

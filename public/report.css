@@ -1,0 +1,231 @@
+/* report.css */
+
+/* Fullscreen layout */
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: Inter, system-ui, sans-serif;
+  font-size: 18px;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Page header */
+.logo {
+  max-width: 220px;
+  height: auto;
+}
+
+h1 {
+  margin: 10px 0 14px 0;
+}
+
+/* Top action row */
+.row {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.btn {
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #ddd;
+  background: #fff;
+  cursor: pointer;
+  font-size: 18px;
+}
+.btn:hover {
+  background: #f7f7f7;
+}
+
+.muted {
+  color: #666;
+}
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* Split layout fills remaining viewport */
+.split {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  gap: 16px;
+  flex: 1;
+  min-height: 0; /* important so inner panels can scroll */
+}
+
+/* Focus mode for portrait tablets */
+.split.fullscreen {
+  grid-template-columns: 1fr;
+}
+.split.fullscreen aside {
+  display: none;
+}
+
+.panel {
+  background: #fff;
+  border-radius: 12px;
+  padding: 12px;
+  overflow-y: auto; /* scroll inside panels */
+  min-height: 0;
+}
+
+/* Area list */
+.list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.list li {
+  padding: 12px;
+  border-bottom: 1px solid #eee;
+  cursor: pointer;
+}
+.list li:hover {
+  background: #f7f7f7;
+}
+
+/* Report look */
+.report-header {
+  border-top: 2px solid #000;
+  border-bottom: 2px solid #000;
+  padding: 14px 6px;
+  font-weight: 700;
+}
+
+:root {
+  --w-loc: 90px; /* location number column */
+  --w-num: 110px; /* numeric columns */
+  --gap: 16px;
+}
+
+/* One grid template used everywhere so columns ALWAYS align */
+.report-grid {
+  display: grid;
+  grid-template-columns: var(--w-loc) minmax(0, 1fr) repeat(4, var(--w-num));
+  column-gap: var(--gap);
+  align-items: baseline;
+  width: 100%;
+  min-width: 0;
+}
+
+.report-grid .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums; /* fixed-width digits */
+}
+
+.report-grid .desc {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap; /* keeps it “report-like” and prevents horizontal scroll */
+}
+
+main.panel {
+  overflow-x: hidden; /* hard stop: no horizontal scrolling */
+}
+
+/* Footer totals */
+.report-footer {
+  border-top: 2px solid #000;
+  padding: 12px 6px;
+  font-weight: 800;
+}
+
+.report-row {
+  padding: 8px 6px;
+  cursor: pointer;
+  user-select: none;
+}
+.report-row:hover {
+  background: #f6f6f6;
+}
+
+.report-block {
+  border-bottom: 1px solid #ddd;
+}
+
+.report-indent {
+  padding-left: 0;
+  margin-top: 6px;
+}
+
+/* Column sizing tuned for portrait tablets */
+.col {
+  width: 110px;
+  text-align: right;
+}
+
+/* Category / group rows */
+.report-sub {
+  font-size: 17px;
+  font-weight: 400;
+  color: #222;
+}
+
+.report-sub .mono {
+  font-weight: 600;
+}
+
+/* Location rows */
+.report-main {
+  font-size: 22px;
+  font-weight: 800;
+}
+
+/* Thin separator between locations */
+.report-block {
+  border-bottom: 1px solid #bbb;
+}
+
+/* Heavy rule before grand total */
+.report-footer {
+  border-top: 2px solid #000;
+  margin-top: 12px;
+  padding-top: 10px;
+}
+
+/* Category / group rows: VERY tight cat number column */
+.report-grid-sub {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) repeat(4, var(--w-num));
+  column-gap: 8px;
+  align-items: baseline;
+  width: 100%;
+  min-width: 0;
+}
+
+/* Pack cat num + desc tightly while keeping the SAME report-grid columns */
+.catcell {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px; /* controls cat_num → desc spacing */
+  min-width: 0;
+}
+
+.catnum {
+  width: 36px; /* 3 digits */
+  text-align: right;
+  font-weight: 700;
+}
+
+.catdesc {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Mobile-ish tweaks */
+@media (max-width: 900px) {
+  .split {
+    grid-template-columns: 1fr;
+  }
+  /* do NOT hide aside here; fullscreen mode controls it */
+}

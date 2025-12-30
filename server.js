@@ -7,8 +7,14 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 const JSON_DIR = path.resolve(__dirname, "..");
 
-// ——— In‑memory cache for all JSON files ———
+// NEW: report export directory (one level up from audit-site)
+const REPORT_DIR = path.resolve(__dirname, "..", "Report-Site");
+
+// Existing audit cache (keep name if you want; this is your current "reportCache")
 const reportCache = new Map();
+
+// NEW: report-export cache (area json files)
+const reportExportCache = new Map();
 
 let skuMaster = [];
 const CUST_MASTER_FILE = path.join(JSON_DIR, "cust_master.json");
@@ -69,9 +75,57 @@ fs.watchFile(CUST_MASTER_FILE, () => {
   preloadCustMaster();
 });
 
+function preloadReportExports() {
+  if (!fs.existsSync(REPORT_DIR)) {
+    console.warn(`REPORT_DIR does not exist: ${REPORT_DIR}`);
+    return;
+  }
+
+  const files = fs
+    .readdirSync(REPORT_DIR)
+    .filter((f) => f.toLowerCase().endsWith(".json"));
+
+  files.forEach((f) => {
+    try {
+      const raw = fs.readFileSync(path.join(REPORT_DIR, f), "utf8");
+      const data = JSON.parse(raw);
+      reportExportCache.set(f, data);
+    } catch (err) {
+      console.warn(`Skipping invalid report export JSON ${f}: ${err.message}`);
+    }
+  });
+
+  console.log(
+    `Preloaded ${reportExportCache.size} report-export JSON files into memory`
+  );
+}
+
+// Watch for changes in REPORT_DIR and reload individual files
+if (fs.existsSync(REPORT_DIR)) {
+  fs.watch(REPORT_DIR, (event, filename) => {
+    if (!filename || !filename.toLowerCase().endsWith(".json")) return;
+
+    const filePath = path.join(REPORT_DIR, filename);
+    if (fs.existsSync(filePath)) {
+      try {
+        const raw = fs.readFileSync(filePath, "utf8");
+        reportExportCache.set(filename, JSON.parse(raw));
+        console.log(`Reloaded report export ${filename} into cache`);
+      } catch (err) {
+        console.warn(
+          `Failed to reload report export ${filename}: ${err.message}`
+        );
+      }
+    } else {
+      reportExportCache.delete(filename);
+      console.log(`Removed report export ${filename} from cache`);
+    }
+  });
+}
+
 // Preload at startup
 preloadReports();
-
+preloadReportExports();
 preloadCustMaster();
 
 // allow up to 10 MB of JSON
@@ -225,6 +279,10 @@ app.get("/ping", (req, res) => {
   res.sendStatus(200);
 });
 
+app.get("/api/report-exports-test", (req, res) => {
+  res.json({ ok: true, count: reportExportCache.size });
+});
+
 // ——— fetch records filtered by employee, location, or SKU (only from enabled) ———
 app.get("/api/records", (req, res) => {
   const { employee, location, sku } = req.query;
@@ -252,6 +310,29 @@ app.get("/api/records", (req, res) => {
 
     res.json(matches);
   });
+});
+
+// List available area exports
+app.get("/api/report-exports", (req, res) => {
+  const list = Array.from(reportExportCache.entries())
+    .filter(([_, data]) => !!data && !!data.area_num)
+    .map(([file, data]) => ({
+      file,
+      area_num: data.area_num,
+      area_desc: data.area_desc || "",
+      location_count: Array.isArray(data.locations) ? data.locations.length : 0,
+    }))
+    .sort((a, b) => String(a.area_num).localeCompare(String(b.area_num)));
+
+  res.json(list);
+});
+
+// Fetch one area export by filename (e.g. 40051.json)
+app.get("/api/report-exports/:file", (req, res) => {
+  const file = req.params.file;
+  const data = reportExportCache.get(file);
+  if (!data) return res.status(404).json({ error: "Report export not found" });
+  res.json(data);
 });
 
 // ─── POST /api/reports/:name ───
