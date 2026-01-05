@@ -140,7 +140,7 @@ main.panel {
 
 .report-row {
   padding: 8px 6px;
-  cursor: pointer;
+  cursor: default;
   user-select: none;
 }
 .report-row:hover {
@@ -220,6 +220,10 @@ main.panel {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.list li strong {
+  font-weight: 800;
 }
 
 /* Mobile-ish tweaks */
