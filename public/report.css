@@ -351,6 +351,17 @@ main.panel {
   display: none;
 }
 
+/* Center logo + title */
+.logo {
+  display: block;
+  margin: 0 auto 12px auto;
+}
+
+h1 {
+  text-align: center;
+  margin-top: 0;
+}
+
 /* Mobile-ish tweaks */
 @media (max-width: 900px) {
   .split {

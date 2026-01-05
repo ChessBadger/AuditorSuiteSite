@@ -415,6 +415,47 @@ app.post("/api/reports/:name", (req, res) => {
   }
 });
 
+// ─── POST reviewed flag ───
+// Body: { reviewed: true/false, reviewed_at?: ISO string }
+app.post("/api/report-exports/:file/reviewed", (req, res) => {
+  const file = req.params.file; // e.g. "20100.json"
+  const data = reportExportCache.get(file);
+
+  if (!data) {
+    return res.status(404).json({ error: "Report export not found" });
+  }
+
+  const reviewed = req.body?.reviewed === true;
+  const reviewed_at =
+    typeof req.body?.reviewed_at === "string"
+      ? req.body.reviewed_at
+      : new Date().toISOString();
+
+  // Update JSON in memory
+  data.reviewed = reviewed;
+
+  // Only set reviewed_at when marking reviewed=true (optional preference)
+  if (reviewed) data.reviewed_at = reviewed_at;
+
+  // Persist to disk
+  const filePath = path.join(REPORT_DIR, file);
+  try {
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), "utf8");
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+
+  // Update in-memory cache
+  reportExportCache.set(file, data);
+
+  return res.json({
+    success: true,
+    file,
+    reviewed,
+    reviewed_at: data.reviewed_at,
+  });
+});
+
 // ─── POST /api/reports/:name/complete ───
 app.post("/api/reports/:name/complete", (req, res) => {
   const fileName = req.params.name;

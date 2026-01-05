@@ -10,7 +10,7 @@ const tabReviewedBtn = document.getElementById("tab-reviewed");
 const tabRecountsBtn = document.getElementById("tab-recounts");
 
 // --------------------
-// Tabs + reviewed state
+// Tabs
 // --------------------
 
 const TABS = {
@@ -20,44 +20,6 @@ const TABS = {
 };
 
 let currentTab = TABS.TO_REVIEW;
-
-const STORAGE_KEYS = {
-  reviewedFiles: "reportExports.reviewedFiles.v1",
-};
-
-function loadReviewedSet() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEYS.reviewedFiles);
-    const arr = raw ? JSON.parse(raw) : [];
-    return new Set(Array.isArray(arr) ? arr : []);
-  } catch {
-    return new Set();
-  }
-}
-
-let reviewedFiles = loadReviewedSet();
-
-function saveReviewedSet() {
-  try {
-    localStorage.setItem(
-      STORAGE_KEYS.reviewedFiles,
-      JSON.stringify(Array.from(reviewedFiles))
-    );
-  } catch {
-    // ignore storage errors (private browsing, etc.)
-  }
-}
-
-function isFileReviewed(file) {
-  return reviewedFiles.has(String(file || ""));
-}
-
-function markFilesReviewed(files) {
-  (Array.isArray(files) ? files : [files]).forEach((f) => {
-    if (f) reviewedFiles.add(String(f));
-  });
-  saveReviewedSet();
-}
 
 function setActiveTab(tab) {
   currentTab = tab;
@@ -82,7 +44,7 @@ function setActiveTab(tab) {
 }
 
 // --------------------
-// Layout mode helper (NEW)
+// Layout mode helper
 // Makes listmode/fullscreen mutually exclusive
 // --------------------
 
@@ -255,7 +217,7 @@ function renderBreakdown(bd) {
 }
 
 // --------------------
-// Recount extraction (UPDATED)
+// Recount extraction
 // Supports per-location location_action object + top-level location_action(s)
 // --------------------
 
@@ -672,7 +634,7 @@ async function loadAreaList() {
   areaList.innerHTML = "";
   content.innerHTML = `<p class="muted">Select an area to view locations + totals.</p>`;
 
-  // NEW: list mode = sidebar takes full width; main is hidden by CSS
+  // list mode = sidebar takes full width; main hidden by CSS
   setSplitMode("list");
 
   const res = await fetch("/api/report-exports");
@@ -683,7 +645,7 @@ async function loadAreaList() {
 
   const items = await res.json();
 
-  // Enrich with grouping info by fetching each JSON once
+  // Enrich by fetching each JSON once (grouping, recounts, reviewed flag)
   const enriched = await Promise.all(
     items.map(async (it) => {
       try {
@@ -693,6 +655,7 @@ async function loadAreaList() {
         if (!r.ok) throw new Error("bad fetch");
         const data = await r.json();
         const eg = getExportGrouping(data);
+
         return {
           area_num: normalizeAreaNum(it.area_num ?? data.area_num ?? ""),
           area_desc: it.area_desc ?? data.area_desc ?? "",
@@ -701,6 +664,10 @@ async function loadAreaList() {
             (Array.isArray(data.locations) ? data.locations.length : 0),
           file: it.file,
           group_id: eg.group_id,
+
+          // ✅ reviewed comes from JSON
+          reviewed: data.reviewed === true,
+
           recounts: extractRecountLocations(data, it.file),
         };
       } catch {
@@ -710,12 +677,14 @@ async function loadAreaList() {
           location_count: it.location_count ?? 0,
           file: it.file,
           group_id: null,
+          reviewed: false,
           recounts: [],
         };
       }
     })
   );
 
+  // group_id -> members[]
   const groups = new Map();
   const singles = [];
 
@@ -783,16 +752,15 @@ async function loadAreaList() {
   // ---- To be reviewed / Reviewed tabs ----
 
   const keepGroup = (members) => {
-    const files = members.map((m) => m.file);
-    const allReviewed = files.every(isFileReviewed);
+    const allReviewed = members.every((m) => m.reviewed);
     if (currentTab === TABS.REVIEWED) return allReviewed;
+    // TO_REVIEW: keep group until every member is reviewed
     return !allReviewed;
   };
 
   const keepSingle = (it) => {
-    const reviewed = isFileReviewed(it.file);
-    if (currentTab === TABS.REVIEWED) return reviewed;
-    return !reviewed;
+    if (currentTab === TABS.REVIEWED) return it.reviewed;
+    return !it.reviewed;
   };
 
   const visibleGroups = groupEntries.filter(([, members]) =>
@@ -806,6 +774,7 @@ async function loadAreaList() {
     currentTab === TABS.REVIEWED ? "Reviewed" : "To be reviewed"
   }.`;
 
+  // Render groups
   for (const [gid, members] of visibleGroups) {
     const li = document.createElement("li");
 
@@ -818,7 +787,7 @@ async function loadAreaList() {
     );
 
     const title = buildGroupTitleFromDescriptions(members);
-    const allReviewed = members.map((m) => m.file).every(isFileReviewed);
+    const allReviewed = members.every((m) => m.reviewed);
 
     li.innerHTML = `
       <div style="display:flex; align-items:baseline; justify-content:space-between; gap:10px;">
@@ -835,9 +804,11 @@ async function loadAreaList() {
     areaList.appendChild(li);
   }
 
+  // Render singles
   for (const item of visibleSingles) {
     const li = document.createElement("li");
-    const reviewed = isFileReviewed(item.file);
+    const reviewed = item.reviewed === true;
+
     li.innerHTML = `
       <div style="display:flex; align-items:baseline; justify-content:space-between; gap:10px;">
         <strong>${escapeHtml(item.area_desc || "")}</strong>
@@ -861,7 +832,7 @@ async function loadAreaGroup(groupId, members) {
   statusEl.textContent = `Loading group…`;
 
   const results = await Promise.all(
-    members.map(async (m) => {
+    (members || []).map(async (m) => {
       const res = await fetch(
         `/api/report-exports/${encodeURIComponent(m.file)}`
       );
@@ -871,7 +842,7 @@ async function loadAreaGroup(groupId, members) {
     })
   );
 
-  // NEW: fullscreen mode for report view
+  // report view: fullscreen
   setSplitMode("fullscreen");
 
   const first = results[0]?.data || {};
@@ -1018,6 +989,7 @@ async function loadAreaGroup(groupId, members) {
 
   content.innerHTML = headerHtml + `<div>${sectionsHtml}</div>` + footerHtml;
 
+  // Wire row clicks to open modal
   wireLocationRowClicks(content, {
     type: "group",
     file: null,
@@ -1032,19 +1004,51 @@ async function loadAreaGroup(groupId, members) {
     loadAreaList();
   });
 
+  // Mark entire group reviewed (server-side)
   const markBtn = document.getElementById("mark-reviewed");
   if (markBtn) {
-    const files = (members || []).map((m) => m.file);
-    const allReviewed = files.every(isFileReviewed);
+    const allReviewed = results.every((r) => r.data?.reviewed === true);
+
     if (allReviewed) {
       markBtn.textContent = "Reviewed ✓";
       markBtn.disabled = true;
     } else {
-      markBtn.addEventListener("click", () => {
-        markFilesReviewed(files);
-        markBtn.textContent = "Reviewed ✓";
+      markBtn.addEventListener("click", async () => {
         markBtn.disabled = true;
-        statusEl.textContent = "Marked group as reviewed.";
+        statusEl.textContent = "Marking group reviewed…";
+
+        try {
+          await Promise.all(
+            results.map(({ meta }) =>
+              fetch(
+                `/api/report-exports/${encodeURIComponent(meta.file)}/reviewed`,
+                {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    reviewed: true,
+                    reviewed_at: new Date().toISOString(),
+                  }),
+                }
+              ).then(async (res) => {
+                if (!res.ok) {
+                  const t = await res.text().catch(() => "");
+                  throw new Error(
+                    `Failed ${meta.file}: HTTP ${res.status} ${t}`.trim()
+                  );
+                }
+              })
+            )
+          );
+
+          markBtn.textContent = "Reviewed ✓";
+          statusEl.textContent = "Marked group as reviewed.";
+        } catch (e) {
+          console.error(e);
+          markBtn.disabled = false;
+          alert(`Could not mark group reviewed: ${e.message || e}`);
+          statusEl.textContent = "Mark group reviewed failed.";
+        }
       });
     }
   }
@@ -1066,7 +1070,7 @@ async function loadArea(file) {
   const data = await res.json();
   const locs = Array.isArray(data.locations) ? data.locations : [];
 
-  // NEW: fullscreen mode for report view
+  // report view: fullscreen
   setSplitMode("fullscreen");
 
   function fmtDateLabel(iso, fallback) {
@@ -1170,6 +1174,7 @@ async function loadArea(file) {
 
   content.innerHTML = headerHtml + `<div>${rowsHtml}</div>` + footerHtml;
 
+  // Wire row clicks to open modal
   wireLocationRowClicks(content, {
     type: "area",
     file,
@@ -1184,18 +1189,45 @@ async function loadArea(file) {
     loadAreaList();
   });
 
+  // Mark this area reviewed (server-side)
   const markBtn = document.getElementById("mark-reviewed");
   if (markBtn) {
-    const already = isFileReviewed(file);
+    const already = data.reviewed === true;
+
     if (already) {
       markBtn.textContent = "Reviewed ✓";
       markBtn.disabled = true;
     } else {
-      markBtn.addEventListener("click", () => {
-        markFilesReviewed(file);
-        markBtn.textContent = "Reviewed ✓";
+      markBtn.addEventListener("click", async () => {
         markBtn.disabled = true;
-        statusEl.textContent = "Marked area as reviewed.";
+        statusEl.textContent = "Marking reviewed…";
+
+        try {
+          const r = await fetch(
+            `/api/report-exports/${encodeURIComponent(file)}/reviewed`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                reviewed: true,
+                reviewed_at: new Date().toISOString(),
+              }),
+            }
+          );
+
+          if (!r.ok) {
+            const t = await r.text().catch(() => "");
+            throw new Error(`HTTP ${r.status} ${t}`.trim());
+          }
+
+          markBtn.textContent = "Reviewed ✓";
+          statusEl.textContent = "Marked area as reviewed.";
+        } catch (e) {
+          console.error(e);
+          markBtn.disabled = false;
+          alert(`Could not mark reviewed: ${e.message || e}`);
+          statusEl.textContent = "Mark reviewed failed.";
+        }
       });
     }
   }
