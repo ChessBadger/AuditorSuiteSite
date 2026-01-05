@@ -335,6 +335,53 @@ app.get("/api/report-exports/:file", (req, res) => {
   res.json(data);
 });
 
+// ─── POST location actions (recount / question) ───
+app.post("/api/report-exports/:file/location-action", (req, res) => {
+  const file = req.params.file; // e.g. "40061.json"
+  const data = reportExportCache.get(file);
+
+  if (!data) {
+    return res.status(404).json({ error: "Report export not found" });
+  }
+
+  const { area_num, loc_num, action, text, timestamp } = req.body;
+
+  if (!loc_num || !action) {
+    return res.status(400).json({ error: "Missing loc_num or action" });
+  }
+
+  if (!["recount", "question"].includes(action)) {
+    return res.status(400).json({ error: "Invalid action type" });
+  }
+
+  // Ensure actions array exists
+  if (!Array.isArray(data.location_actions)) {
+    data.location_actions = [];
+  }
+
+  // Record the action
+  data.location_actions.push({
+    area_num,
+    loc_num,
+    action,
+    text: text || "",
+    timestamp: timestamp || new Date().toISOString(),
+  });
+
+  // Persist to disk
+  const filePath = path.join(REPORT_DIR, file);
+  try {
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), "utf8");
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+
+  // Update in-memory cache
+  reportExportCache.set(file, data);
+
+  res.json({ success: true });
+});
+
 // ─── POST /api/reports/:name ───
 // Autosave without marking complete (leaves enabled/completedAt untouched)
 app.post("/api/reports/:name", (req, res) => {
