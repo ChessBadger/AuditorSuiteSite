@@ -32,6 +32,32 @@ h1 {
   align-items: center;
 }
 
+/* Tabs */
+.tabs {
+  display: inline-flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.tab {
+  padding: 8px 10px;
+  border-radius: 999px;
+  border: 1px solid #ddd;
+  background: #fff;
+  cursor: pointer;
+  font-size: 16px;
+}
+
+.tab:hover {
+  background: #f7f7f7;
+}
+
+.tab.active {
+  border-color: #bbb;
+  font-weight: 800;
+  background: #f3f3f3;
+}
+
 .btn {
   padding: 10px 12px;
   border-radius: 10px;
@@ -145,6 +171,17 @@ main.panel {
 }
 .report-row:hover {
   background: #f6f6f6;
+}
+
+/* Used when jumping to a recount location */
+.report-row.highlight {
+  background: #fff3bf;
+}
+
+/* Temporary highlight when jumping to a location */
+.flash-highlight {
+  background: #fff3bf !important;
+  transition: background 1.2s ease;
 }
 
 .report-block {

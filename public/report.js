@@ -5,6 +5,82 @@ const content = document.getElementById("content");
 const statusEl = document.getElementById("status");
 const refreshBtn = document.getElementById("btn-refresh");
 
+const tabToReviewBtn = document.getElementById("tab-to-review");
+const tabReviewedBtn = document.getElementById("tab-reviewed");
+const tabRecountsBtn = document.getElementById("tab-recounts");
+
+// --------------------
+// Tabs + reviewed state
+// --------------------
+
+const TABS = {
+  TO_REVIEW: "to_review",
+  REVIEWED: "reviewed",
+  RECOUNTS: "recounts",
+};
+
+let currentTab = TABS.TO_REVIEW;
+
+const STORAGE_KEYS = {
+  reviewedFiles: "reportExports.reviewedFiles.v1",
+};
+
+function loadReviewedSet() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.reviewedFiles);
+    const arr = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(arr) ? arr : []);
+  } catch {
+    return new Set();
+  }
+}
+
+let reviewedFiles = loadReviewedSet();
+
+function saveReviewedSet() {
+  try {
+    localStorage.setItem(
+      STORAGE_KEYS.reviewedFiles,
+      JSON.stringify(Array.from(reviewedFiles))
+    );
+  } catch {
+    // ignore storage errors (private browsing, etc.)
+  }
+}
+
+function isFileReviewed(file) {
+  return reviewedFiles.has(String(file || ""));
+}
+
+function markFilesReviewed(files) {
+  (Array.isArray(files) ? files : [files]).forEach((f) => {
+    if (f) reviewedFiles.add(String(f));
+  });
+  saveReviewedSet();
+}
+
+function setActiveTab(tab) {
+  currentTab = tab;
+
+  const defs = [
+    [tabToReviewBtn, TABS.TO_REVIEW],
+    [tabReviewedBtn, TABS.REVIEWED],
+    [tabRecountsBtn, TABS.RECOUNTS],
+  ];
+
+  defs.forEach(([btn, t]) => {
+    if (!btn) return;
+    const active = t === tab;
+    btn.classList.toggle("active", active);
+    btn.setAttribute("aria-selected", active ? "true" : "false");
+  });
+
+  // Reload list view if we're currently on the list screen.
+  if (currentView.type === "list") {
+    loadAreaList();
+  }
+}
+
 // --------------------
 // Formatting / helpers
 // --------------------
@@ -161,6 +237,170 @@ function renderBreakdown(bd) {
   }
 
   return `<div class="muted">No breakdown available.</div>`;
+}
+
+// --------------------
+// Recount extraction
+// --------------------
+
+function extractRecountLocations(reportJson, file) {
+  const data = reportJson || {};
+  const area_num = normalizeAreaNum(data.area_num ?? "");
+  const area_desc = data.area_desc || "";
+  const locs = Array.isArray(data.locations) ? data.locations : [];
+
+  const isRecountAction = (a) =>
+    !!a &&
+    typeof a === "object" &&
+    String(a.action || a.type || "").toLowerCase() === "recount";
+
+  const getActionText = (a) =>
+    a && typeof a === "object" ? String(a.text || a.reason || "") : "";
+
+  const getLocNum = (loc) => String(loc?.loc_num ?? "");
+  const findLocByNum = (locNum) =>
+    locs.find((l) => getLocNum(l) === String(locNum ?? ""));
+
+  // --------------------
+  // 1) Collect recounts from TOP-LEVEL action(s)
+  //    (in case backend stores actions at root, not inside each location)
+  // --------------------
+  const topRecountRows = [];
+
+  // single top-level action
+  if (isRecountAction(data.location_action)) {
+    const locNum = data.location_action?.loc_num ?? "";
+    const match = findLocByNum(locNum);
+    topRecountRows.push({
+      file,
+      area_num,
+      area_desc,
+      loc_num: match?.loc_num ?? locNum,
+      loc_desc: match?.loc_desc || "",
+      reason: getActionText(data.location_action),
+    });
+  }
+
+  // array top-level actions
+  const topActions =
+    data.location_actions ||
+    data.locationActions ||
+    data.actions ||
+    data.location_action || // if some backends misuse this as an array
+    null;
+
+  if (Array.isArray(topActions)) {
+    for (const a of topActions) {
+      if (!isRecountAction(a)) continue;
+      const locNum = a?.loc_num ?? "";
+      const match = findLocByNum(locNum);
+      topRecountRows.push({
+        file,
+        area_num,
+        area_desc,
+        loc_num: match?.loc_num ?? locNum,
+        loc_desc: match?.loc_desc || "",
+        reason: getActionText(a),
+      });
+    }
+  }
+
+  // --------------------
+  // 2) Per-location detection
+  // --------------------
+  const isRecountFlag = (loc) => {
+    if (!loc || typeof loc !== "object") return false;
+
+    if (loc.recount === true || loc.needs_recount === true) return true;
+    if (String(loc.status || "").toLowerCase() === "recount") return true;
+    if (String(loc.action || "").toLowerCase() === "recount") return true;
+
+    // per-location single action object (your JSON shape)
+    if (isRecountAction(loc.location_action || loc.locationAction)) return true;
+
+    // per-location array actions
+    const actions =
+      loc.actions ||
+      loc.location_actions ||
+      loc.locationActions ||
+      loc.location_action || // if some backends misuse this as an array
+      null;
+
+    if (Array.isArray(actions)) {
+      return actions.some(isRecountAction);
+    }
+
+    return false;
+  };
+
+  const recountReason = (loc) => {
+    if (!loc || typeof loc !== "object") return "";
+
+    // prefer per-location single action object text
+    const one = loc.location_action || loc.locationAction;
+    if (isRecountAction(one)) return getActionText(one);
+
+    // existing fields
+    if (typeof loc.recount_reason === "string") return loc.recount_reason;
+    if (typeof loc.recountReason === "string") return loc.recountReason;
+    if (typeof loc.recount_text === "string") return loc.recount_text;
+
+    // array actions: last recount wins
+    const actions =
+      loc.actions ||
+      loc.location_actions ||
+      loc.locationActions ||
+      loc.location_action ||
+      null;
+
+    if (Array.isArray(actions)) {
+      const a = actions.slice().reverse().find(isRecountAction);
+      return getActionText(a);
+    }
+
+    return "";
+  };
+
+  const perLocRows = locs.filter(isRecountFlag).map((l) => ({
+    file,
+    area_num,
+    area_desc,
+    loc_num: l.loc_num ?? "",
+    loc_desc: l.loc_desc || "",
+    reason: recountReason(l),
+  }));
+
+  // --------------------
+  // 3) Merge + de-dupe (area_num + loc_num)
+  // --------------------
+  const all = [...topRecountRows, ...perLocRows];
+  const seen = new Set();
+  const out = [];
+
+  for (const r of all) {
+    const key = `${String(r.area_num || "")}::${String(r.loc_num || "")}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(r);
+  }
+
+  return out;
+}
+
+function jumpToLocationInView(loc_num) {
+  const target = String(loc_num ?? "");
+  if (!target) return;
+
+  const row = content.querySelector(
+    `.report-row.report-main[data-loc-num="${CSS.escape(target)}"]`
+  );
+
+  if (!row) return;
+
+  // Highlight briefly
+  row.classList.add("highlight");
+  row.scrollIntoView({ behavior: "smooth", block: "center" });
+  setTimeout(() => row.classList.remove("highlight"), 1600);
 }
 
 // --------------------
@@ -470,6 +710,7 @@ async function loadAreaList() {
             (Array.isArray(data.locations) ? data.locations.length : 0),
           file: it.file,
           group_id: eg.group_id,
+          recounts: extractRecountLocations(data, it.file),
         };
       } catch {
         return {
@@ -478,6 +719,7 @@ async function loadAreaList() {
           location_count: it.location_count ?? 0,
           file: it.file,
           group_id: null,
+          recounts: [],
         };
       }
     })
@@ -505,10 +747,79 @@ async function loadAreaList() {
   );
   singles.sort((a, b) => String(a.area_num).localeCompare(String(b.area_num)));
 
-  statusEl.textContent = `${items.length} export(s) loaded — ${groupEntries.length} group(s), ${singles.length} single area(s).`;
+  // ---- Recounts tab ----
+  if (currentTab === TABS.RECOUNTS) {
+    const recountRows = enriched
+      .flatMap((e) => e.recounts || [])
+      .sort((a, b) => {
+        const aa = String(a.area_num || "");
+        const ba = String(b.area_num || "");
+        if (aa !== ba) return aa.localeCompare(ba);
+        return String(a.loc_num || "").localeCompare(String(b.loc_num || ""));
+      });
+
+    statusEl.textContent = `${recountRows.length} recount location(s).`;
+
+    if (recountRows.length === 0) {
+      areaList.innerHTML = `<li class="muted">No recounts.</li>`;
+      return;
+    }
+
+    for (const r of recountRows) {
+      const li = document.createElement("li");
+      const locLabel = String(r.loc_num || "").padStart(5, "0");
+      const reason = (r.reason || "").trim();
+
+      li.innerHTML = `
+        <div><strong>LOC ${escapeHtml(locLabel)} — ${escapeHtml(
+        r.loc_desc || ""
+      )}</strong></div>
+        <div class="mono muted">AREA ${escapeHtml(
+          r.area_num || ""
+        )} • ${escapeHtml(r.area_desc || "")}</div>
+        ${reason ? `<div class="muted">${escapeHtml(reason)}</div>` : ""}
+      `;
+
+      li.addEventListener("click", async () => {
+        await loadArea(r.file);
+        jumpToLocationInView(r.loc_num);
+      });
+
+      areaList.appendChild(li);
+    }
+    return;
+  }
+
+  // ---- To be reviewed / Reviewed tabs ----
+
+  const keepGroup = (members) => {
+    const files = members.map((m) => m.file);
+    const allReviewed = files.every(isFileReviewed);
+    const anyReviewed = files.some(isFileReviewed);
+    if (currentTab === TABS.REVIEWED) return allReviewed;
+    // TO_REVIEW: include group until every member is reviewed
+    return !allReviewed;
+  };
+
+  const keepSingle = (it) => {
+    const reviewed = isFileReviewed(it.file);
+    if (currentTab === TABS.REVIEWED) return reviewed;
+    return !reviewed;
+  };
+
+  const visibleGroups = groupEntries.filter(([, members]) =>
+    keepGroup(members)
+  );
+  const visibleSingles = singles.filter((s) => keepSingle(s));
+
+  statusEl.textContent = `${visibleGroups.length} group(s), ${
+    visibleSingles.length
+  } single area(s) — tab: ${
+    currentTab === TABS.REVIEWED ? "Reviewed" : "To be reviewed"
+  }.`;
 
   // Render groups
-  for (const [gid, members] of groupEntries) {
+  for (const [gid, members] of visibleGroups) {
     const li = document.createElement("li");
 
     const areaNums = members.map((m) => m.area_num).filter(Boolean);
@@ -520,9 +831,13 @@ async function loadAreaList() {
     );
 
     const title = buildGroupTitleFromDescriptions(members);
+    const allReviewed = members.map((m) => m.file).every(isFileReviewed);
 
     li.innerHTML = `
-      <div><strong>${escapeHtml(title)}</strong></div>
+      <div style="display:flex; align-items:baseline; justify-content:space-between; gap:10px;">
+        <strong>${escapeHtml(title)}</strong>
+        ${allReviewed ? `<span class="muted">Reviewed ✓</span>` : ""}
+      </div>
       <div class="mono muted">${escapeHtml(areaLabel)}</div>
       <div class="muted">${
         members.length
@@ -534,10 +849,14 @@ async function loadAreaList() {
   }
 
   // Render singles
-  for (const item of singles) {
+  for (const item of visibleSingles) {
     const li = document.createElement("li");
+    const reviewed = isFileReviewed(item.file);
     li.innerHTML = `
-      <div><strong>${escapeHtml(item.area_desc || "")}</strong></div>
+      <div style="display:flex; align-items:baseline; justify-content:space-between; gap:10px;">
+        <strong>${escapeHtml(item.area_desc || "")}</strong>
+        ${reviewed ? `<span class="muted">Reviewed ✓</span>` : ""}
+      </div>
       <div class="mono muted">${escapeHtml(item.area_num ?? "")}</div>
       <div class="muted">${item.location_count ?? 0} locations</div>
     `;
@@ -585,7 +904,10 @@ async function loadAreaGroup(groupId, members) {
 
   const headerHtml = `
     <div class="report-header">
-      <button id="back-to-areas" class="btn" style="margin-bottom:10px;">← Areas</button>
+      <div class="row" style="margin-bottom:10px;">
+        <button id="back-to-areas" class="btn" type="button">← Areas</button>
+        <button id="mark-reviewed" class="btn btn-primary" type="button">Mark group reviewed</button>
+      </div>
 
       <div class="report-grid" style="font-weight:700; font-size:19px;">
         <div style="grid-column: 1 / span 2;"></div>
@@ -724,6 +1046,24 @@ async function loadAreaGroup(groupId, members) {
     document.querySelector(".split")?.classList.remove("fullscreen");
     loadAreaList();
   });
+
+  // Mark entire group reviewed
+  const markBtn = document.getElementById("mark-reviewed");
+  if (markBtn) {
+    const files = (members || []).map((m) => m.file);
+    const allReviewed = files.every(isFileReviewed);
+    if (allReviewed) {
+      markBtn.textContent = "Reviewed ✓";
+      markBtn.disabled = true;
+    } else {
+      markBtn.addEventListener("click", () => {
+        markFilesReviewed(files);
+        markBtn.textContent = "Reviewed ✓";
+        markBtn.disabled = true;
+        statusEl.textContent = "Marked group as reviewed.";
+      });
+    }
+  }
 }
 
 async function loadArea(file) {
@@ -759,7 +1099,10 @@ async function loadArea(file) {
 
   const headerHtml = `
     <div class="report-header">
-      <button id="back-to-areas" class="btn" style="margin-bottom:10px;">← Areas</button>
+      <div class="row" style="margin-bottom:10px;">
+        <button id="back-to-areas" class="btn" type="button">← Areas</button>
+        <button id="mark-reviewed" class="btn btn-primary" type="button">Mark area reviewed</button>
+      </div>
 
       <div class="report-grid" style="font-weight:700; font-size:19px;">
         <div style="grid-column: 1 / span 2; font-size:22px;">
@@ -856,7 +1199,30 @@ async function loadArea(file) {
     document.querySelector(".split")?.classList.remove("fullscreen");
     loadAreaList();
   });
+
+  // Mark this area reviewed
+  const markBtn = document.getElementById("mark-reviewed");
+  if (markBtn) {
+    const already = isFileReviewed(file);
+    if (already) {
+      markBtn.textContent = "Reviewed ✓";
+      markBtn.disabled = true;
+    } else {
+      markBtn.addEventListener("click", () => {
+        markFilesReviewed(file);
+        markBtn.textContent = "Reviewed ✓";
+        markBtn.disabled = true;
+        statusEl.textContent = "Marked area as reviewed.";
+      });
+    }
+  }
 }
 
 refreshBtn?.addEventListener("click", loadAreaList);
-loadAreaList();
+
+tabToReviewBtn?.addEventListener("click", () => setActiveTab(TABS.TO_REVIEW));
+tabReviewedBtn?.addEventListener("click", () => setActiveTab(TABS.REVIEWED));
+tabRecountsBtn?.addEventListener("click", () => setActiveTab(TABS.RECOUNTS));
+
+// Ensure tab UI is in sync on first load
+setActiveTab(currentTab);
