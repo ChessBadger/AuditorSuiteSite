@@ -342,6 +342,15 @@ main.panel {
   font-weight: 800;
 }
 
+/* List mode: show ONLY the sidebar list (no empty main panel) */
+.split.listmode {
+  grid-template-columns: 1fr;
+}
+
+.split.listmode main.panel {
+  display: none;
+}
+
 /* Mobile-ish tweaks */
 @media (max-width: 900px) {
   .split {

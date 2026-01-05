@@ -82,6 +82,21 @@ function setActiveTab(tab) {
 }
 
 // --------------------
+// Layout mode helper (NEW)
+// Makes listmode/fullscreen mutually exclusive
+// --------------------
+
+function setSplitMode(mode) {
+  const split = document.querySelector(".split");
+  if (!split) return;
+
+  split.classList.remove("listmode", "fullscreen");
+
+  if (mode === "list") split.classList.add("listmode");
+  if (mode === "fullscreen") split.classList.add("fullscreen");
+}
+
+// --------------------
 // Formatting / helpers
 // --------------------
 
@@ -240,7 +255,8 @@ function renderBreakdown(bd) {
 }
 
 // --------------------
-// Recount extraction
+// Recount extraction (UPDATED)
+// Supports per-location location_action object + top-level location_action(s)
 // --------------------
 
 function extractRecountLocations(reportJson, file) {
@@ -261,53 +277,45 @@ function extractRecountLocations(reportJson, file) {
   const findLocByNum = (locNum) =>
     locs.find((l) => getLocNum(l) === String(locNum ?? ""));
 
-  // --------------------
-  // 1) Collect recounts from TOP-LEVEL action(s)
-  //    (in case backend stores actions at root, not inside each location)
-  // --------------------
-  const topRecountRows = [];
+  // 1) top-level actions -> rows
+  const topRows = [];
 
-  // single top-level action
-  if (isRecountAction(data.location_action)) {
-    const locNum = data.location_action?.loc_num ?? "";
-    const match = findLocByNum(locNum);
-    topRecountRows.push({
+  if (isRecountAction(data.location_action || data.locationAction)) {
+    const a = data.location_action || data.locationAction;
+    const match = findLocByNum(a?.loc_num ?? "");
+    topRows.push({
       file,
       area_num,
       area_desc,
-      loc_num: match?.loc_num ?? locNum,
+      loc_num: match?.loc_num ?? a?.loc_num ?? "",
       loc_desc: match?.loc_desc || "",
-      reason: getActionText(data.location_action),
+      reason: getActionText(a),
     });
   }
 
-  // array top-level actions
   const topActions =
     data.location_actions ||
     data.locationActions ||
     data.actions ||
-    data.location_action || // if some backends misuse this as an array
+    (Array.isArray(data.location_action) ? data.location_action : null) ||
     null;
 
   if (Array.isArray(topActions)) {
     for (const a of topActions) {
       if (!isRecountAction(a)) continue;
-      const locNum = a?.loc_num ?? "";
-      const match = findLocByNum(locNum);
-      topRecountRows.push({
+      const match = findLocByNum(a?.loc_num ?? "");
+      topRows.push({
         file,
         area_num,
         area_desc,
-        loc_num: match?.loc_num ?? locNum,
+        loc_num: match?.loc_num ?? a?.loc_num ?? "",
         loc_desc: match?.loc_desc || "",
         reason: getActionText(a),
       });
     }
   }
 
-  // --------------------
-  // 2) Per-location detection
-  // --------------------
+  // 2) per-location flags
   const isRecountFlag = (loc) => {
     if (!loc || typeof loc !== "object") return false;
 
@@ -315,20 +323,19 @@ function extractRecountLocations(reportJson, file) {
     if (String(loc.status || "").toLowerCase() === "recount") return true;
     if (String(loc.action || "").toLowerCase() === "recount") return true;
 
-    // per-location single action object (your JSON shape)
-    if (isRecountAction(loc.location_action || loc.locationAction)) return true;
+    // per-location single object
+    const one = loc.location_action || loc.locationAction;
+    if (isRecountAction(one)) return true;
 
-    // per-location array actions
+    // per-location arrays
     const actions =
       loc.actions ||
       loc.location_actions ||
       loc.locationActions ||
-      loc.location_action || // if some backends misuse this as an array
+      (Array.isArray(loc.location_action) ? loc.location_action : null) ||
       null;
 
-    if (Array.isArray(actions)) {
-      return actions.some(isRecountAction);
-    }
+    if (Array.isArray(actions)) return actions.some(isRecountAction);
 
     return false;
   };
@@ -336,21 +343,18 @@ function extractRecountLocations(reportJson, file) {
   const recountReason = (loc) => {
     if (!loc || typeof loc !== "object") return "";
 
-    // prefer per-location single action object text
     const one = loc.location_action || loc.locationAction;
     if (isRecountAction(one)) return getActionText(one);
 
-    // existing fields
     if (typeof loc.recount_reason === "string") return loc.recount_reason;
     if (typeof loc.recountReason === "string") return loc.recountReason;
     if (typeof loc.recount_text === "string") return loc.recount_text;
 
-    // array actions: last recount wins
     const actions =
       loc.actions ||
       loc.location_actions ||
       loc.locationActions ||
-      loc.location_action ||
+      (Array.isArray(loc.location_action) ? loc.location_action : null) ||
       null;
 
     if (Array.isArray(actions)) {
@@ -370,20 +374,16 @@ function extractRecountLocations(reportJson, file) {
     reason: recountReason(l),
   }));
 
-  // --------------------
-  // 3) Merge + de-dupe (area_num + loc_num)
-  // --------------------
-  const all = [...topRecountRows, ...perLocRows];
+  // 3) merge + dedupe
+  const all = [...topRows, ...perLocRows];
   const seen = new Set();
   const out = [];
-
   for (const r of all) {
     const key = `${String(r.area_num || "")}::${String(r.loc_num || "")}`;
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(r);
   }
-
   return out;
 }
 
@@ -397,7 +397,6 @@ function jumpToLocationInView(loc_num) {
 
   if (!row) return;
 
-  // Highlight briefly
   row.classList.add("highlight");
   row.scrollIntoView({ behavior: "smooth", block: "center" });
   setTimeout(() => row.classList.remove("highlight"), 1600);
@@ -409,10 +408,8 @@ function jumpToLocationInView(loc_num) {
 
 const modalState = {
   open: false,
-  // context about what row was clicked
   context: null, // { file, area_num, area_desc, loc_num, loc_desc }
-  // view state: "choose" | "recount" | "question"
-  step: "choose",
+  step: "choose", // "choose" | "recount" | "question"
 };
 
 function ensureActionModal() {
@@ -441,7 +438,6 @@ function ensureActionModal() {
     .getElementById("lam-close")
     .addEventListener("click", closeActionModal);
   document.getElementById("loc-action-modal").addEventListener("click", (e) => {
-    // clicking backdrop closes
     if (e.target && e.target.id === "loc-action-modal") closeActionModal();
   });
 
@@ -576,14 +572,11 @@ async function submitLocationAction({ action, text }) {
   const ctx = modalState.context;
   if (!ctx) return;
 
-  // UI: disable buttons while submitting
   const footer = document.getElementById("lam-footer");
   footer.querySelectorAll("button").forEach((b) => (b.disabled = true));
   statusEl.textContent = "Saving…";
 
   try {
-    // NEW endpoint you add server-side
-    // POST /api/report-exports/:file/location-action
     const res = await fetch(
       `/api/report-exports/${encodeURIComponent(ctx.file)}/location-action`,
       {
@@ -620,7 +613,6 @@ async function submitLocationAction({ action, text }) {
     console.error(err);
     alert(`Could not save: ${err.message || err}`);
     statusEl.textContent = "Save failed.";
-    // re-enable
     footer.querySelectorAll("button").forEach((b) => (b.disabled = false));
   }
 }
@@ -630,16 +622,13 @@ async function submitLocationAction({ action, text }) {
 // --------------------
 
 function wireLocationRowClicks(root, viewContext) {
-  // viewContext: { type: "area", file, area_num, area_desc } or { type:"group" ... } per row uses data attributes
   (root || document)
     .querySelectorAll(".report-row.report-main")
     .forEach((row) => {
-      // Avoid double-binding if re-rendered: simplest guard
       if (row.dataset.boundClick === "1") return;
       row.dataset.boundClick = "1";
 
       row.addEventListener("click", (e) => {
-        // If later you add other buttons inside row, ignore clicks on them
         if (e.target && e.target.closest && e.target.closest("button")) return;
 
         const file = row.getAttribute("data-file") || viewContext.file;
@@ -682,7 +671,9 @@ async function loadAreaList() {
   statusEl.textContent = "Loading…";
   areaList.innerHTML = "";
   content.innerHTML = `<p class="muted">Select an area to view locations + totals.</p>`;
-  document.querySelector(".split")?.classList.remove("fullscreen");
+
+  // NEW: list mode = sidebar takes full width; main is hidden by CSS
+  setSplitMode("list");
 
   const res = await fetch("/api/report-exports");
   if (!res.ok) {
@@ -725,7 +716,6 @@ async function loadAreaList() {
     })
   );
 
-  // group_id -> members[]
   const groups = new Map();
   const singles = [];
 
@@ -795,9 +785,7 @@ async function loadAreaList() {
   const keepGroup = (members) => {
     const files = members.map((m) => m.file);
     const allReviewed = files.every(isFileReviewed);
-    const anyReviewed = files.some(isFileReviewed);
     if (currentTab === TABS.REVIEWED) return allReviewed;
-    // TO_REVIEW: include group until every member is reviewed
     return !allReviewed;
   };
 
@@ -818,7 +806,6 @@ async function loadAreaList() {
     currentTab === TABS.REVIEWED ? "Reviewed" : "To be reviewed"
   }.`;
 
-  // Render groups
   for (const [gid, members] of visibleGroups) {
     const li = document.createElement("li");
 
@@ -848,7 +835,6 @@ async function loadAreaList() {
     areaList.appendChild(li);
   }
 
-  // Render singles
   for (const item of visibleSingles) {
     const li = document.createElement("li");
     const reviewed = isFileReviewed(item.file);
@@ -885,7 +871,8 @@ async function loadAreaGroup(groupId, members) {
     })
   );
 
-  document.querySelector(".split")?.classList.add("fullscreen");
+  // NEW: fullscreen mode for report view
+  setSplitMode("fullscreen");
 
   const first = results[0]?.data || {};
   const dates = first.dates || {};
@@ -958,7 +945,6 @@ async function loadAreaGroup(groupId, members) {
         .map((l, idx) => {
           const id = `g-${escapeHtml(data.area_num ?? "area")}-loc-${idx}`;
 
-          // NOTE: These data-* fields are what the row click uses for the modal.
           return `
             <div class="report-block">
               <div class="report-row report-grid report-main"
@@ -1032,7 +1018,6 @@ async function loadAreaGroup(groupId, members) {
 
   content.innerHTML = headerHtml + `<div>${sectionsHtml}</div>` + footerHtml;
 
-  // Wire row clicks to open modal
   wireLocationRowClicks(content, {
     type: "group",
     file: null,
@@ -1043,11 +1028,10 @@ async function loadAreaGroup(groupId, members) {
   statusEl.textContent = `Loaded group ${groupId}`;
 
   document.getElementById("back-to-areas")?.addEventListener("click", () => {
-    document.querySelector(".split")?.classList.remove("fullscreen");
+    setSplitMode("list");
     loadAreaList();
   });
 
-  // Mark entire group reviewed
   const markBtn = document.getElementById("mark-reviewed");
   if (markBtn) {
     const files = (members || []).map((m) => m.file);
@@ -1082,7 +1066,8 @@ async function loadArea(file) {
   const data = await res.json();
   const locs = Array.isArray(data.locations) ? data.locations : [];
 
-  document.querySelector(".split")?.classList.add("fullscreen");
+  // NEW: fullscreen mode for report view
+  setSplitMode("fullscreen");
 
   function fmtDateLabel(iso, fallback) {
     if (!iso) return fallback;
@@ -1185,7 +1170,6 @@ async function loadArea(file) {
 
   content.innerHTML = headerHtml + `<div>${rowsHtml}</div>` + footerHtml;
 
-  // Wire row clicks to open modal
   wireLocationRowClicks(content, {
     type: "area",
     file,
@@ -1196,11 +1180,10 @@ async function loadArea(file) {
   statusEl.textContent = `Loaded area ${data.area_num}`;
 
   document.getElementById("back-to-areas")?.addEventListener("click", () => {
-    document.querySelector(".split")?.classList.remove("fullscreen");
+    setSplitMode("list");
     loadAreaList();
   });
 
-  // Mark this area reviewed
   const markBtn = document.getElementById("mark-reviewed");
   if (markBtn) {
     const already = isFileReviewed(file);
