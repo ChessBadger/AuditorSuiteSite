@@ -1358,7 +1358,7 @@ async function loadAreaList() {
     return;
   }
 
-  // ---- To be reviewed / Reviewed tabs ----
+  // ---- To Be Reviewed / Reviewed tabs ----
 
   const keepGroup = (members) => {
     const allReviewed = members.every((m) => m.reviewed);
@@ -1380,7 +1380,7 @@ async function loadAreaList() {
   statusEl.textContent = `${visibleGroups.length} group(s), ${
     visibleSingles.length
   } single area(s) — tab: ${
-    currentTab === TABS.REVIEWED ? "Reviewed" : "To be reviewed"
+    currentTab === TABS.REVIEWED ? "Reviewed" : "To Be Reviewed"
   }.`;
 
   // Render groups
@@ -1471,7 +1471,7 @@ async function loadAreaGroup(groupId, members) {
     <div class="report-header">
       <div class="row" style="margin-bottom:10px;">
         <button id="back-to-areas" class="btn" type="button">← Areas</button>
-        <button id="mark-reviewed" class="btn btn-primary" type="button">Mark group reviewed</button>
+        <button id="mark-reviewed" class="btn btn-primary" type="button">Mark Reviewed</button>
       </div>
 
       <div class="report-grid" style="font-weight:700; font-size:19px;">
@@ -1666,8 +1666,8 @@ async function loadAreaGroup(groupId, members) {
         } catch (e) {
           console.error(e);
           markBtn.disabled = false;
-          alert(`Could not mark group reviewed: ${e.message || e}`);
-          statusEl.textContent = "Mark group reviewed failed.";
+          alert(`Could not Mark Reviewed: ${e.message || e}`);
+          statusEl.textContent = "Mark Reviewed failed.";
         }
       });
     }
@@ -1717,7 +1717,7 @@ async function loadArea(file) {
     <div class="report-header">
       <div class="row" style="margin-bottom:10px;">
         <button id="back-to-areas" class="btn" type="button">← Areas</button>
-        <button id="mark-reviewed" class="btn btn-primary" type="button">Mark area reviewed</button>
+        <button id="mark-reviewed" class="btn btn-primary" type="button">Mark Reviewed</button>
       </div>
 
       <div class="report-grid" style="font-weight:700; font-size:19px;">
