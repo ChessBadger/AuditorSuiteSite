@@ -14,6 +14,333 @@ const fullscreenBtn = document.getElementById("btn-fullscreen");
 const adminBadge = document.getElementById("admin-badge");
 
 // --------------------
+// Offline cache + queued writes
+// --------------------
+
+const CACHE_NS = "report_cache_v1";
+const CACHE_KEYS = {
+  LIST: `${CACHE_NS}:GET:/api/report-exports`,
+  FILE: (file) =>
+    `${CACHE_NS}:GET:/api/report-exports/${encodeURIComponent(file)}`,
+  PENDING: `${CACHE_NS}:PENDING_QUEUE`,
+  DISCONNECTED_SINCE: `${CACHE_NS}:DISCONNECTED_SINCE`,
+};
+
+// const DISCONNECT_BANNER_AFTER_MS = 5 * 60 * 1000; // 5 minutes
+const DISCONNECT_BANNER_AFTER_MS = 5; // 5 minutes
+const BANNER_POLL_MS = 2500;
+
+let disconnectedSince = (() => {
+  const raw = localStorage.getItem(CACHE_KEYS.DISCONNECTED_SINCE);
+  const n = raw ? Number(raw) : 0;
+  return Number.isFinite(n) && n > 0 ? n : null;
+})();
+
+function safeJsonParse(s) {
+  try {
+    return JSON.parse(s);
+  } catch {
+    return null;
+  }
+}
+
+function cacheGet(key) {
+  const raw = localStorage.getItem(key);
+  if (!raw) return null;
+  const obj = safeJsonParse(raw);
+  if (!obj || typeof obj !== "object") return null;
+  return obj;
+}
+
+function cacheSet(key, valueObj) {
+  try {
+    localStorage.setItem(key, JSON.stringify(valueObj));
+  } catch (e) {
+    // localStorage may be full; best-effort
+    console.warn("cacheSet failed", e);
+  }
+}
+
+function ensureOfflineBanner() {
+  if (document.getElementById("offline-banner")) return;
+
+  const el = document.createElement("div");
+  el.id = "offline-banner";
+  el.setAttribute("role", "status");
+  el.style.cssText = `
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 200000;
+    display: none;
+    padding: 10px 14px;
+    font-family: Inter, system-ui, sans-serif;
+    font-size: 16px;
+    font-weight: 800;
+    text-align: center;
+    border-bottom: 2px solid #111;
+    background: #ffeb3b;
+    color: #111;
+  `;
+  el.textContent =
+    "Disconnected for over 5 minutes. Please return to the station.";
+
+  document.body.appendChild(el);
+}
+
+function showOfflineBanner(show) {
+  ensureOfflineBanner();
+  const el = document.getElementById("offline-banner");
+  if (!el) return;
+  el.style.display = show ? "block" : "none";
+}
+
+function markDisconnected() {
+  if (!disconnectedSince) {
+    disconnectedSince = Date.now();
+    localStorage.setItem(
+      CACHE_KEYS.DISCONNECTED_SINCE,
+      String(disconnectedSince)
+    );
+  }
+  // Do not show banner until 5 minutes have elapsed.
+}
+
+function markConnected() {
+  disconnectedSince = null;
+  localStorage.removeItem(CACHE_KEYS.DISCONNECTED_SINCE);
+  showOfflineBanner(false);
+}
+
+function updateDisconnectUI() {
+  if (!disconnectedSince) {
+    showOfflineBanner(false);
+    return;
+  }
+  const elapsed = Date.now() - disconnectedSince;
+  if (elapsed >= DISCONNECT_BANNER_AFTER_MS) showOfflineBanner(true);
+  else showOfflineBanner(false);
+}
+
+setInterval(updateDisconnectUI, BANNER_POLL_MS);
+window.addEventListener("online", () => {
+  // "online" doesn't guarantee server availability, but it's a good time to try.
+  flushPendingQueue();
+});
+window.addEventListener("offline", () => {
+  // browser-level offline signal
+  markDisconnected();
+  updateDisconnectUI();
+});
+
+function getPendingQueue() {
+  const raw = localStorage.getItem(CACHE_KEYS.PENDING);
+  const arr = safeJsonParse(raw);
+  return Array.isArray(arr) ? arr : [];
+}
+
+function setPendingQueue(arr) {
+  cacheSet(CACHE_KEYS.PENDING, arr);
+}
+
+function enqueueRequest(req) {
+  const q = getPendingQueue();
+  q.push(req);
+  setPendingQueue(q);
+}
+
+function looksLikeNetworkError(err) {
+  // fetch() network failures typically throw TypeError in browsers
+  if (!err) return false;
+  const msg = String(err.message || err).toLowerCase();
+  return (
+    err.name === "TypeError" ||
+    msg.includes("failed to fetch") ||
+    msg.includes("networkerror") ||
+    msg.includes("network error") ||
+    msg.includes("load failed") ||
+    msg.includes("fetch")
+  );
+}
+
+async function fetchJsonWithCache(url, cacheKey) {
+  try {
+    const res = await fetch(url, { method: "GET" });
+
+    // Server responded: we are connected (even if error status).
+    markConnected();
+
+    if (!res.ok) {
+      const t = await res.text().catch(() => "");
+      const err = new Error(`HTTP ${res.status} ${t}`.trim());
+      err.httpStatus = res.status;
+      throw err;
+    }
+
+    const data = await res.json();
+
+    cacheSet(cacheKey, {
+      ts: Date.now(),
+      data,
+    });
+
+    // on successful contact, try flushing any queued writes
+    flushPendingQueue();
+
+    return { data, fromCache: false };
+  } catch (err) {
+    // If it's network-ish, we can use cache.
+    if (looksLikeNetworkError(err)) {
+      markDisconnected();
+      updateDisconnectUI();
+
+      const cached = cacheGet(cacheKey);
+      if (cached && cached.data !== undefined) {
+        return { data: cached.data, fromCache: true };
+      }
+    }
+    throw err;
+  }
+}
+
+async function postJsonQueued(url, bodyObj, { applyLocal } = {}) {
+  const payload = JSON.stringify(bodyObj ?? {});
+  const headers = { "Content-Type": "application/json" };
+
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers,
+      body: payload,
+    });
+
+    // Server responded: connected
+    markConnected();
+
+    if (!res.ok) {
+      const t = await res.text().catch(() => "");
+      throw new Error(`HTTP ${res.status} ${t}`.trim());
+    }
+
+    // On success, try flushing any older pending writes too
+    flushPendingQueue();
+
+    return { ok: true, queued: false };
+  } catch (err) {
+    if (looksLikeNetworkError(err)) {
+      markDisconnected();
+      updateDisconnectUI();
+
+      // Apply optimistic local changes (cache) so user can continue navigating.
+      try {
+        if (typeof applyLocal === "function") applyLocal();
+      } catch (e) {
+        console.warn("applyLocal failed", e);
+      }
+
+      enqueueRequest({
+        id: `${Date.now()}_${Math.random().toString(16).slice(2)}`,
+        url,
+        method: "POST",
+        headers,
+        body: payload,
+        queuedAt: new Date().toISOString(),
+      });
+
+      return { ok: true, queued: true };
+    }
+
+    throw err;
+  }
+}
+
+let flushing = false;
+async function flushPendingQueue() {
+  if (flushing) return;
+  flushing = true;
+
+  try {
+    const q = getPendingQueue();
+    if (q.length === 0) return;
+
+    // Try in-order; stop on first network failure.
+    const remaining = [];
+    for (const item of q) {
+      try {
+        const res = await fetch(item.url, {
+          method: item.method || "POST",
+          headers: item.headers || { "Content-Type": "application/json" },
+          body: item.body,
+        });
+
+        // Any response means we can clear disconnected state.
+        markConnected();
+
+        if (!res.ok) {
+          // Server reachable but rejected; keep it (so it isn't silently lost)
+          remaining.push(item);
+        }
+      } catch (err) {
+        if (looksLikeNetworkError(err)) {
+          markDisconnected();
+          updateDisconnectUI();
+
+          // Can't reach server right now; keep current + rest.
+          remaining.push(item);
+          const idx = q.indexOf(item);
+          for (let i = idx + 1; i < q.length; i++) remaining.push(q[i]);
+          break;
+        } else {
+          // Unknown error: keep it
+          remaining.push(item);
+        }
+      }
+    }
+
+    setPendingQueue(remaining);
+  } finally {
+    flushing = false;
+  }
+}
+
+function patchCachedFile(file, mutator) {
+  const key = CACHE_KEYS.FILE(file);
+  const cached = cacheGet(key);
+  if (!cached || cached.data === undefined) return;
+
+  const data = cached.data;
+  if (!data || typeof data !== "object") return;
+
+  try {
+    mutator(data);
+    cacheSet(key, { ...cached, ts: Date.now(), data });
+  } catch (e) {
+    console.warn("patchCachedFile mutator failed", e);
+  }
+}
+
+function patchCachedListReviewedFlag(file, reviewed, reviewed_at) {
+  // The list endpoint cache holds array of items; in this app the list is enriched later,
+  // so patching isn't strictly required, but it helps keep things coherent.
+  const cached = cacheGet(CACHE_KEYS.LIST);
+  if (!cached || !Array.isArray(cached.data)) return;
+
+  const list = cached.data.slice();
+  let changed = false;
+
+  for (const it of list) {
+    if (!it || typeof it !== "object") continue;
+    if (String(it.file || "") !== String(file || "")) continue;
+    // list items don't necessarily include reviewed; leave if not present.
+    if ("reviewed" in it) it.reviewed = !!reviewed;
+    if ("reviewed_at" in it) it.reviewed_at = reviewed_at || it.reviewed_at;
+    changed = true;
+  }
+
+  if (changed)
+    cacheSet(CACHE_KEYS.LIST, { ...cached, ts: Date.now(), data: list });
+}
+
+// --------------------
 // Admin mode / hidden fullscreen control
 // - Tap logo 5x -> PIN prompt (0213) -> admin mode
 // - In admin mode: show fullscreen button
@@ -720,30 +1047,57 @@ async function submitLocationAction({ action, text }) {
   footer.querySelectorAll("button").forEach((b) => (b.disabled = true));
   statusEl.textContent = "Saving…";
 
+  const url = `/api/report-exports/${encodeURIComponent(
+    ctx.file
+  )}/location-action`;
+  const payload = {
+    area_num: ctx.area_num,
+    loc_num: ctx.loc_num,
+    action, // "recount" | "question"
+    text, // reason or question message
+    timestamp: new Date().toISOString(),
+  };
+
   try {
-    const res = await fetch(
-      `/api/report-exports/${encodeURIComponent(ctx.file)}/location-action`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          area_num: ctx.area_num,
-          loc_num: ctx.loc_num,
-          action, // "recount" | "question"
-          text, // reason or question message
-          timestamp: new Date().toISOString(),
-        }),
-      }
-    );
+    const result = await postJsonQueued(url, payload, {
+      applyLocal: () => {
+        // Update cached file so user can continue navigating with accurate local state
+        patchCachedFile(ctx.file, (data) => {
+          // store in a top-level actions array compatible with existing extraction
+          const keyNames = ["location_actions", "locationActions", "actions"];
+          let arr = null;
+          let targetKey = "location_actions";
 
-    if (!res.ok) {
-      const t = await res.text().catch(() => "");
-      throw new Error(`HTTP ${res.status} ${t}`.trim());
+          for (const k of keyNames) {
+            if (Array.isArray(data[k])) {
+              arr = data[k];
+              targetKey = k;
+              break;
+            }
+          }
+          if (!arr) {
+            data[targetKey] = [];
+            arr = data[targetKey];
+          }
+
+          arr.push({
+            area_num: ctx.area_num,
+            loc_num: ctx.loc_num,
+            action,
+            text,
+            timestamp: payload.timestamp,
+          });
+        });
+      },
+    });
+
+    if (result.queued) {
+      statusEl.textContent = `Saved offline (queued).`;
+    } else {
+      statusEl.textContent = `Saved ${action} for location ${String(
+        ctx.loc_num
+      ).padStart(5, "0")}.`;
     }
-
-    statusEl.textContent = `Saved ${action} for location ${String(
-      ctx.loc_num
-    ).padStart(5, "0")}.`;
 
     closeActionModal();
 
@@ -885,23 +1239,30 @@ async function loadAreaList() {
   // list mode = sidebar takes full width; main hidden by CSS
   setSplitMode("list");
 
-  const res = await fetch("/api/report-exports");
-  if (!res.ok) {
-    statusEl.textContent = `Failed to load areas. HTTP ${res.status}`;
+  let items;
+  try {
+    const out = await fetchJsonWithCache(
+      "/api/report-exports",
+      CACHE_KEYS.LIST
+    );
+    items = out.data;
+    if (!Array.isArray(items)) items = [];
+    if (out.fromCache) {
+      // show it's cached, but keep behavior minimal
+      statusEl.textContent = "Loading… (cached)";
+    }
+  } catch (e) {
+    statusEl.textContent = `Failed to load areas. ${e.message || e}`;
     return;
   }
-
-  const items = await res.json();
 
   // Enrich by fetching each JSON once (grouping, recounts, reviewed flag)
   const enriched = await Promise.all(
     items.map(async (it) => {
       try {
-        const r = await fetch(
-          `/api/report-exports/${encodeURIComponent(it.file)}`
-        );
-        if (!r.ok) throw new Error("bad fetch");
-        const data = await r.json();
+        const url = `/api/report-exports/${encodeURIComponent(it.file)}`;
+        const out = await fetchJsonWithCache(url, CACHE_KEYS.FILE(it.file));
+        const data = out.data;
         const eg = getExportGrouping(data);
 
         return {
@@ -1081,11 +1442,9 @@ async function loadAreaGroup(groupId, members) {
 
   const results = await Promise.all(
     (members || []).map(async (m) => {
-      const res = await fetch(
-        `/api/report-exports/${encodeURIComponent(m.file)}`
-      );
-      if (!res.ok) throw new Error(`Failed to load ${m.file}`);
-      const data = await res.json();
+      const url = `/api/report-exports/${encodeURIComponent(m.file)}`;
+      const out = await fetchJsonWithCache(url, CACHE_KEYS.FILE(m.file));
+      const data = out.data;
       return { meta: m, data };
     })
   );
@@ -1278,27 +1637,28 @@ async function loadAreaGroup(groupId, members) {
         statusEl.textContent = "Marking group reviewed…";
 
         try {
+          const reviewed_at = new Date().toISOString();
+
           await Promise.all(
-            results.map(({ meta }) =>
-              fetch(
-                `/api/report-exports/${encodeURIComponent(meta.file)}/reviewed`,
-                {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    reviewed: true,
-                    reviewed_at: new Date().toISOString(),
-                  }),
-                }
-              ).then(async (res) => {
-                if (!res.ok) {
-                  const t = await res.text().catch(() => "");
-                  throw new Error(
-                    `Failed ${meta.file}: HTTP ${res.status} ${t}`.trim()
-                  );
-                }
-              })
-            )
+            results.map(({ meta }) => {
+              const url = `/api/report-exports/${encodeURIComponent(
+                meta.file
+              )}/reviewed`;
+              const body = { reviewed: true, reviewed_at };
+
+              return postJsonQueued(url, body, {
+                applyLocal: () => {
+                  patchCachedFile(meta.file, (data) => {
+                    data.reviewed = true;
+                    data.reviewed_at = reviewed_at;
+                  });
+                  patchCachedListReviewedFlag(meta.file, true, reviewed_at);
+                },
+              }).then((r) => {
+                // If server rejected (non-network) it throws above; queued counts as ok.
+                return r;
+              });
+            })
           );
 
           markBtn.textContent = "Reviewed ✓";
@@ -1321,13 +1681,20 @@ async function loadArea(file) {
   currentView.members = null;
 
   statusEl.textContent = `Loading…`;
-  const res = await fetch(`/api/report-exports/${encodeURIComponent(file)}`);
-  if (!res.ok) {
-    statusEl.textContent = `Failed to load report. HTTP ${res.status}`;
+
+  let data;
+  try {
+    const out = await fetchJsonWithCache(
+      `/api/report-exports/${encodeURIComponent(file)}`,
+      CACHE_KEYS.FILE(file)
+    );
+    data = out.data;
+    if (out.fromCache) statusEl.textContent = `Loading… (cached)`;
+  } catch (e) {
+    statusEl.textContent = `Failed to load report. ${e.message || e}`;
     return;
   }
 
-  const data = await res.json();
   const locs = Array.isArray(data.locations) ? data.locations : [];
 
   // report view: fullscreen
@@ -1474,23 +1841,20 @@ async function loadArea(file) {
         markBtn.disabled = true;
         statusEl.textContent = "Marking reviewed…";
 
-        try {
-          const r = await fetch(
-            `/api/report-exports/${encodeURIComponent(file)}/reviewed`,
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                reviewed: true,
-                reviewed_at: new Date().toISOString(),
-              }),
-            }
-          );
+        const reviewed_at = new Date().toISOString();
+        const url = `/api/report-exports/${encodeURIComponent(file)}/reviewed`;
+        const body = { reviewed: true, reviewed_at };
 
-          if (!r.ok) {
-            const t = await r.text().catch(() => "");
-            throw new Error(`HTTP ${r.status} ${t}`.trim());
-          }
+        try {
+          await postJsonQueued(url, body, {
+            applyLocal: () => {
+              patchCachedFile(file, (d) => {
+                d.reviewed = true;
+                d.reviewed_at = reviewed_at;
+              });
+              patchCachedListReviewedFlag(file, true, reviewed_at);
+            },
+          });
 
           markBtn.textContent = "Reviewed ✓";
           statusEl.textContent = "Marked area as reviewed.";
@@ -1513,3 +1877,7 @@ tabRecountsBtn?.addEventListener("click", () => setActiveTab(TABS.RECOUNTS));
 
 // Ensure tab UI is in sync on first load
 setActiveTab(currentTab);
+
+// One more: on initial load, if we already have pending writes, try to flush.
+flushPendingQueue();
+updateDisconnectUI();

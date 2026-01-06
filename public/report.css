@@ -446,3 +446,19 @@ body.admin-mode #btn-fullscreen,
 body.admin-mode #admin-badge {
   display: inline-block;
 }
+
+.report-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+
+  background: #fff; /* required so content doesn't bleed through */
+}
+
+.report-header {
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.08);
+}
+
+.report-header {
+  will-change: transform;
+}
