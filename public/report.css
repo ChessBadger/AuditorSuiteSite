@@ -19,8 +19,8 @@
   --radius: 16px;
   --radius-sm: 12px;
   --tap: 48px;
-  --primary: #0b57d0; /* Material-ish blue */
-  --primary-press: #0a4bb4;
+  --primary: rgba(153, 0, 0, 1);
+  --primary-press: rgba(122, 0, 0, 1); /* darker red for active/pressed */
 }
 
 /* Fullscreen layout */
@@ -28,6 +28,7 @@ html,
 body {
   height: 100%;
   margin: 0;
+  margin-top: 20px;
 }
 
 body {
@@ -112,8 +113,8 @@ h1 {
 }
 
 .tab.active {
-  border-color: rgba(11, 87, 208, 0.35);
-  background: rgba(11, 87, 208, 0.1);
+  border-color: rgba(153, 0, 0, 0.35);
+  background: rgba(153, 0, 0, 0.1);
   color: var(--primary);
 }
 
@@ -135,8 +136,7 @@ h1 {
 .btn:focus-visible,
 .tab:focus-visible,
 .prior-desc-btn:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 4px rgba(11, 87, 208, 0.18), var(--shadow-sm);
+  box-shadow: 0 0 0 4px rgba(153, 0, 0, 0.18), var(--shadow-sm);
 }
 
 .btn:active {
@@ -199,7 +199,7 @@ h1 {
   cursor: pointer;
 }
 .list li:hover {
-  background: rgba(11, 87, 208, 0.06);
+  background: rgba(153, 0, 0, 0.06);
 }
 
 .list li::after {
@@ -450,9 +450,8 @@ main.panel {
 }
 
 .modal-textarea:focus {
-  outline: none;
-  border-color: rgba(11, 87, 208, 0.6);
-  box-shadow: 0 0 0 4px rgba(11, 87, 208, 0.12);
+  border-color: rgba(153, 0, 0, 0.6);
+  box-shadow: 0 0 0 4px rgba(153, 0, 0, 0.12);
 }
 
 .btn-primary {
