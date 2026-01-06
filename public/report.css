@@ -221,7 +221,7 @@ h1 {
 }
 
 :root {
-  --w-loc: 90px; /* location number column */
+  --w-loc: 50px; /* location number column */
   --w-num: 110px; /* numeric columns */
   --gap: 16px;
 }
