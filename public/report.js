@@ -1457,9 +1457,8 @@ async function loadAreaGroup(groupId, members) {
 
   function fmtDateLabel(iso, fallback) {
     if (!iso) return fallback;
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return fallback;
-    return d.toLocaleDateString();
+    const d = new Date(iso + "T00:00:00Z");
+    return d.toLocaleDateString(undefined, { timeZone: "UTC" });
   }
 
   const col1 = fmtDateLabel(dates.current, "Current");
