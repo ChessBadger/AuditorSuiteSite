@@ -5,6 +5,7 @@ html,
 body {
   height: 100%;
   margin: 0;
+  margin-top: 20px;
 }
 
 body {
@@ -368,4 +369,15 @@ h1 {
     grid-template-columns: 1fr;
   }
   /* do NOT hide aside here; fullscreen mode controls it */
+}
+
+/* Admin mode (hidden fullscreen controls) */
+#btn-fullscreen,
+#admin-badge {
+  display: none;
+}
+
+body.admin-mode #btn-fullscreen,
+body.admin-mode #admin-badge {
+  display: inline-block;
 }

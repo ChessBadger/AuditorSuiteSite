@@ -9,6 +9,107 @@ const tabToReviewBtn = document.getElementById("tab-to-review");
 const tabReviewedBtn = document.getElementById("tab-reviewed");
 const tabRecountsBtn = document.getElementById("tab-recounts");
 
+const logoEl = document.getElementById("logo");
+const fullscreenBtn = document.getElementById("btn-fullscreen");
+const adminBadge = document.getElementById("admin-badge");
+
+// --------------------
+// Admin mode / hidden fullscreen control
+// - Tap logo 5x -> PIN prompt (0213) -> admin mode
+// - In admin mode: show fullscreen button
+// - Tap logo once while in admin mode -> exit admin mode (hide again)
+// --------------------
+
+const ADMIN_PIN = "0213";
+let adminMode = false;
+
+let logoTapCount = 0;
+let logoTapResetTimer = null;
+const LOGO_TAP_WINDOW_MS = 1800;
+
+function setAdminMode(on) {
+  adminMode = !!on;
+  document.body.classList.toggle("admin-mode", adminMode);
+
+  // Keep aria in sync with visibility.
+  if (fullscreenBtn)
+    fullscreenBtn.setAttribute("aria-hidden", adminMode ? "false" : "true");
+  if (adminBadge)
+    adminBadge.setAttribute("aria-hidden", adminMode ? "false" : "true");
+}
+
+function refreshFullscreenBtnLabel() {
+  if (!fullscreenBtn) return;
+  const inFs = !!(
+    document.fullscreenElement || document.webkitFullscreenElement
+  );
+  fullscreenBtn.textContent = inFs ? "Exit Fullscreen" : "Fullscreen";
+}
+
+async function toggleFullscreen() {
+  const docEl = document.documentElement;
+
+  try {
+    const inFs = !!(
+      document.fullscreenElement || document.webkitFullscreenElement
+    );
+
+    if (!inFs) {
+      const req =
+        docEl.requestFullscreen ||
+        docEl.webkitRequestFullscreen ||
+        docEl.msRequestFullscreen;
+      if (req) await req.call(docEl);
+    } else {
+      const exit =
+        document.exitFullscreen ||
+        document.webkitExitFullscreen ||
+        document.msExitFullscreen;
+      if (exit) await exit.call(document);
+    }
+  } catch (e) {
+    console.error(e);
+    alert("Fullscreen could not be started (browser may block it).");
+  } finally {
+    refreshFullscreenBtnLabel();
+  }
+}
+
+document.addEventListener("fullscreenchange", refreshFullscreenBtnLabel);
+document.addEventListener("webkitfullscreenchange", refreshFullscreenBtnLabel);
+
+fullscreenBtn?.addEventListener("click", () => {
+  toggleFullscreen();
+});
+
+logoEl?.addEventListener("click", () => {
+  // If already in admin mode, a single tap exits admin mode.
+  if (adminMode) {
+    setAdminMode(false);
+    return;
+  }
+
+  logoTapCount += 1;
+
+  if (logoTapResetTimer) clearTimeout(logoTapResetTimer);
+  logoTapResetTimer = setTimeout(() => {
+    logoTapCount = 0;
+  }, LOGO_TAP_WINDOW_MS);
+
+  if (logoTapCount >= 5) {
+    logoTapCount = 0;
+    if (logoTapResetTimer) clearTimeout(logoTapResetTimer);
+
+    const pin = window.prompt("Enter admin PIN");
+    if (pin === ADMIN_PIN) {
+      setAdminMode(true);
+      refreshFullscreenBtnLabel();
+    } else if (pin !== null) {
+      alert("Incorrect PIN.");
+    }
+  }
+});
+
 // --------------------
 // Tabs
 // --------------------
