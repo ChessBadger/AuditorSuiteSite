@@ -681,6 +681,72 @@ async function submitLocationAction({ action, text }) {
 }
 
 // --------------------
+// Prior location description (show_prior_loc_desc)
+// When a location has show_prior_loc_desc=true, we show a small icon next to
+// the location number. Clicking toggles an inline block that displays the
+// prior location description (if present in the export).
+// --------------------
+
+function getPriorLocDesc(loc) {
+  if (!loc || typeof loc !== "object") return "";
+
+  // Common export field names (best-effort)
+  const candidates = [
+    loc.prior_loc_desc,
+    loc.priorLocDesc,
+    loc.prior_location_desc,
+    loc.priorLocationDesc,
+    loc.loc_desc_prior,
+    loc.locDescPrior,
+    loc.loc_desc_prior1,
+    loc.locDescPrior1,
+    loc.prior_desc,
+    loc.priorDesc,
+  ];
+
+  for (const v of candidates) {
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+
+  return "";
+}
+
+function wirePriorDescButtons(root) {
+  (root || document).querySelectorAll(".prior-desc-btn").forEach((btn) => {
+    if (btn.dataset.boundPrior === "1") return;
+    btn.dataset.boundPrior = "1";
+
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      const targetId = btn.dataset.priorTarget || "";
+      const desc = btn.dataset.priorDesc || "";
+
+      if (!targetId) return;
+
+      const box = document.getElementById(targetId);
+      if (!box) return;
+
+      if (!desc) {
+        alert("Prior location description not found in this export.");
+        return;
+      }
+
+      // Toggle
+      const isOpen = box.style.display !== "none";
+      if (isOpen) {
+        box.style.display = "none";
+        box.textContent = "";
+      } else {
+        box.innerHTML = `<strong>Prior Description:</strong> ${desc}`;
+        box.style.display = "block";
+      }
+    });
+  });
+}
+
+// --------------------
 // Row click wiring
 // --------------------
 
@@ -1017,6 +1083,17 @@ async function loadAreaGroup(groupId, members) {
         .map((l, idx) => {
           const id = `g-${escapeHtml(data.area_num ?? "area")}-loc-${idx}`;
 
+          const priorDesc = getPriorLocDesc(l);
+          const showPrior = l?.show_prior_loc_desc === true;
+          const priorBtn = showPrior
+            ? `<button class="prior-desc-btn" type="button" title="Show prior location description" data-prior-target="${id}-prior" data-prior-desc="${escapeHtml(
+                priorDesc || ""
+              )}">↩</button>`
+            : "";
+          const priorBlock = showPrior
+            ? `<div id="${id}-prior" class="prior-desc" style="display:none;"></div>`
+            : "";
+
           return `
             <div class="report-block">
               <div class="report-row report-grid report-main"
@@ -1028,7 +1105,7 @@ async function loadAreaGroup(groupId, members) {
                    data-loc-desc="${escapeHtml(l.loc_desc || "")}">
                 <div class="mono" style="font-size:16px; font-weight:800;">${escapeHtml(
                   l.loc_num ?? ""
-                )}</div>
+                )}${priorBtn}</div>
                 <div class="desc" style="font-size:16px; font-weight:800;">${escapeHtml(
                   l.loc_desc || ""
                 )}</div>
@@ -1048,7 +1125,7 @@ async function loadAreaGroup(groupId, members) {
               </div>
 
               <div id="${id}" class="report-indent" style="display:block;">
-                ${renderBreakdown(l.report_breakdown)}
+                ${priorBlock}${renderBreakdown(l.report_breakdown)}
               </div>
             </div>
           `;
@@ -1098,6 +1175,7 @@ async function loadAreaGroup(groupId, members) {
     area_desc: null,
   });
 
+  wirePriorDescButtons(content);
   statusEl.textContent = `Loaded group ${groupId}`;
 
   document.getElementById("back-to-areas")?.addEventListener("click", () => {
@@ -1223,6 +1301,17 @@ async function loadArea(file) {
     .map((l, idx) => {
       const id = `loc-${idx}`;
 
+      const priorDesc = getPriorLocDesc(l);
+      const showPrior = l?.show_prior_loc_desc === true;
+      const priorBtn = showPrior
+        ? `<button class="prior-desc-btn" type="button" title="Show prior location description" data-prior-target="${id}-prior" data-prior-desc="${escapeHtml(
+            priorDesc || ""
+          )}">↩</button>`
+        : "";
+      const priorBlock = showPrior
+        ? `<div id="${id}-prior" class="prior-desc" style="display:none;"></div>`
+        : "";
+
       return `
         <div class="report-block">
           <div class="report-row report-grid report-main"
@@ -1234,7 +1323,7 @@ async function loadArea(file) {
                data-loc-desc="${escapeHtml(l.loc_desc || "")}">
             <div class="mono" style="font-size:16px; font-weight:800;">${escapeHtml(
               l.loc_num ?? ""
-            )}</div>
+            )}${priorBtn}</div>
             <div class="desc" style="font-size:16px; font-weight:800;">${escapeHtml(
               l.loc_desc || ""
             )}</div>
@@ -1254,7 +1343,7 @@ async function loadArea(file) {
           </div>
 
           <div id="${id}" class="report-indent" style="display:block;">
-            ${renderBreakdown(l.report_breakdown)}
+            ${priorBlock}${renderBreakdown(l.report_breakdown)}
           </div>
         </div>
       `;
@@ -1283,6 +1372,7 @@ async function loadArea(file) {
     area_desc: data.area_desc || "",
   });
 
+  wirePriorDescButtons(content);
   statusEl.textContent = `Loaded area ${data.area_num}`;
 
   document.getElementById("back-to-areas")?.addEventListener("click", () => {
