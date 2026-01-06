@@ -341,14 +341,14 @@ main.panel {
 }
 
 /* Category / group rows: VERY tight cat number column */
-.report-grid-sub {
+/* .report-grid-sub {
   display: grid;
   grid-template-columns: 34px minmax(0, 1fr) repeat(4, var(--w-num));
   column-gap: 8px;
   align-items: baseline;
   width: 100%;
   min-width: 0;
-}
+} */
 
 /* Pack cat num + desc tightly while keeping the SAME report-grid columns */
 .catcell {

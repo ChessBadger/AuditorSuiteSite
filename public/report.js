@@ -640,7 +640,7 @@ function renderBreakdown(bd) {
     return groups
       .map(
         (g) => `
-  <div class="report-grid report-sub" style="padding:2px 0;">
+  <div class="report-grid report-sub" style="padding:2px 10px;">
     <div></div>
     <div class="desc">
       <span class="catcell">
@@ -666,7 +666,7 @@ function renderBreakdown(bd) {
     return categories
       .map(
         (c) => `
-  <div class="report-grid report-sub" style="padding:2px 0;">
+  <div class="report-grid report-sub" style="padding:2px 10px;">
     <div></div>
     <div class="desc">
       <span class="catcell">
@@ -690,7 +690,7 @@ function renderBreakdown(bd) {
     return groups
       .map(
         (g) => `
-        <div class="report-grid-sub report-sub">
+        <div class="report-grid report-sub" style="padding:2px 10px;">
           <div class="mono">${escapeHtml(g.cat_group_num ?? "")}</div>
           <div class="desc">${escapeHtml(g.group_desc ?? "")}</div>
 
@@ -708,7 +708,7 @@ function renderBreakdown(bd) {
     return categories
       .map(
         (c) => `
-        <div class="report-grid-sub report-sub">
+        <div class="report-grid report-sub" style="padding:2px 10px;">
           <div class="mono">${escapeHtml(c.cat_num ?? "")}</div>
           <div class="desc">${escapeHtml(c.cat_desc ?? "")}</div>
 
