@@ -1,11 +1,33 @@
 /* report.css */
 
+/*
+  Android-tablet friendly UI
+  - Larger touch targets
+  - Subtle Material-ish surfaces (elevation, rounded corners)
+  - Safe-area padding (gesture nav)
+  - Better scrolling behavior on Chrome/Android
+*/
+
+:root {
+  --bg: #f5f6f8;
+  --surface: #ffffff;
+  --text: #111111;
+  --muted: #6b7280;
+  --border: rgba(17, 17, 17, 0.12);
+  --shadow: 0 10px 28px rgba(0, 0, 0, 0.1);
+  --shadow-sm: 0 6px 16px rgba(0, 0, 0, 0.08);
+  --radius: 16px;
+  --radius-sm: 12px;
+  --tap: 48px;
+  --primary: #0b57d0; /* Material-ish blue */
+  --primary-press: #0a4bb4;
+}
+
 /* Fullscreen layout */
 html,
 body {
   height: 100%;
   margin: 0;
-  margin-top: 20px;
 }
 
 body {
@@ -13,6 +35,17 @@ body {
   font-size: 18px;
   display: flex;
   flex-direction: column;
+  color: var(--text);
+  background: var(--bg);
+
+  /* Comfortable tablet gutters + Android gesture safe-area */
+  padding: max(12px, env(safe-area-inset-top))
+    max(12px, env(safe-area-inset-right)) max(18px, env(safe-area-inset-bottom))
+    max(12px, env(safe-area-inset-left));
+
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
 }
 
 /* Page header */
@@ -33,46 +66,85 @@ h1 {
   align-items: center;
 }
 
+/* Sticky app-style top bar (works well on Android tablets) */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 60;
+  padding: 10px 10px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: var(--shadow-sm);
+}
+
+.topbar #status {
+  margin-left: auto;
+}
+
 /* Tabs */
 .tabs {
   display: inline-flex;
   gap: 8px;
   flex-wrap: wrap;
+  padding: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.65);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
 }
 
 .tab {
-  padding: 8px 10px;
+  min-height: var(--tap);
+  padding: 10px 14px;
   border-radius: 999px;
-  border: 1px solid #ddd;
-  background: #fff;
+  border: 1px solid transparent;
+  background: transparent;
   cursor: pointer;
   font-size: 16px;
+  font-weight: 700;
 }
 
 .tab:hover {
-  background: #f7f7f7;
+  background: rgba(17, 17, 17, 0.06);
 }
 
 .tab.active {
-  border-color: #bbb;
-  font-weight: 800;
-  background: #f3f3f3;
+  border-color: rgba(11, 87, 208, 0.35);
+  background: rgba(11, 87, 208, 0.1);
+  color: var(--primary);
 }
 
 .btn {
-  padding: 10px 12px;
-  border-radius: 10px;
-  border: 1px solid #ddd;
-  background: #fff;
+  min-height: var(--tap);
+  padding: 12px 16px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
   cursor: pointer;
   font-size: 18px;
+  font-weight: 800;
 }
 .btn:hover {
-  background: #f7f7f7;
+  background: rgba(17, 17, 17, 0.04);
+}
+
+.btn:focus-visible,
+.tab:focus-visible,
+.prior-desc-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 4px rgba(11, 87, 208, 0.18), var(--shadow-sm);
+}
+
+.btn:active {
+  transform: translateY(1px);
 }
 
 .muted {
-  color: #666;
+  color: var(--muted);
 }
 .mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -96,11 +168,18 @@ h1 {
 }
 
 .panel {
-  background: #fff;
-  border-radius: 12px;
-  padding: 12px;
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 14px;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
   overflow-y: auto; /* scroll inside panels */
   min-height: 0;
+}
+
+/* Make scrolling feel nicer on Android */
+.panel {
+  scrollbar-gutter: stable;
 }
 
 /* Area list */
@@ -110,12 +189,27 @@ h1 {
   margin: 0;
 }
 .list li {
-  padding: 12px;
-  border-bottom: 1px solid #eee;
+  position: relative;
+  padding: 14px 44px 14px 14px;
+  border-bottom: none;
+  margin-bottom: 10px;
+  border-radius: var(--radius-sm);
+  background: rgba(17, 17, 17, 0.02);
+  border: 1px solid rgba(17, 17, 17, 0.08);
   cursor: pointer;
 }
 .list li:hover {
-  background: #f7f7f7;
+  background: rgba(11, 87, 208, 0.06);
+}
+
+.list li::after {
+  content: "›";
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 26px;
+  color: rgba(17, 17, 17, 0.35);
 }
 
 /* Report look */
@@ -314,10 +408,10 @@ main.panel {
 
 .modal {
   width: min(720px, 96vw);
-  background: #fff;
-  border-radius: 14px;
-  border: 1px solid #ddd;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+  background: var(--surface);
+  border-radius: 18px;
+  border: 1px solid var(--border);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.3);
   overflow: hidden;
 }
 
@@ -350,14 +444,25 @@ main.panel {
   font-size: 16px;
   padding: 10px 12px;
   border-radius: 10px;
-  border: 1px solid #ddd;
+  border: 1px solid var(--border);
   resize: vertical;
   font-family: Inter, system-ui, sans-serif;
 }
 
+.modal-textarea:focus {
+  outline: none;
+  border-color: rgba(11, 87, 208, 0.6);
+  box-shadow: 0 0 0 4px rgba(11, 87, 208, 0.12);
+}
+
 .btn-primary {
-  border-color: #bbb;
-  font-weight: 800;
+  border-color: rgba(11, 87, 208, 0.55);
+  background: var(--primary);
+  color: #fff;
+}
+
+.btn-primary:active {
+  background: var(--primary-press);
 }
 
 /* List mode: show ONLY the sidebar list (no empty main panel) */
@@ -434,6 +539,19 @@ h1 {
     grid-template-columns: 1fr;
   }
   /* do NOT hide aside here; fullscreen mode controls it */
+}
+
+/* Tablet polish (most 10-13" Android tablets live here) */
+@media (min-width: 700px) and (max-width: 1280px) {
+  body {
+    font-size: 18px;
+  }
+  .split {
+    gap: 18px;
+  }
+  .panel {
+    padding: 16px;
+  }
 }
 
 /* Admin mode (hidden fullscreen controls) */
