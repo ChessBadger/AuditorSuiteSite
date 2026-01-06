@@ -1574,7 +1574,7 @@ async function loadAreaGroup(groupId, members) {
 
       const areaFooter = `
         <div style="border-top:1px solid #bbb; margin-top:6px;"></div>
-        <div class="report-grid" style="padding:8px 6px; font-weight:800;">
+        <div class="report-grid" style="padding:8px 6px; font-weight:800; font-size:16px;">
           <div style="grid-column: 1 / span 2;">AREA TOTAL</div>
           <div class="num">${fmtMoney(areaGrand.c)}</div>
           <div class="num">${fmtMoney(areaGrand.p1)}</div>
@@ -1595,7 +1595,7 @@ async function loadAreaGroup(groupId, members) {
 
   const footerHtml = `
     <div class="report-footer">
-      <div class="report-grid">
+      <div class="report-grid" style="font-size:16px;">
         <div style="grid-column: 1 / span 2; font-size:16px;">GROUP GRAND TOTAL</div>
         <div class="num">${fmtMoney(groupGrand.c)}</div>
         <div class="num">${fmtMoney(groupGrand.p1)}</div>
@@ -1800,7 +1800,7 @@ async function loadArea(file) {
 
   const footerHtml = `
     <div class="report-footer">
-      <div class="report-grid">
+      <div class="report-grid" style="font-size:16px;">
         <div style="grid-column: 1 / span 2; font-size:16px;">GRAND TOTAL</div>
         <div class="num">${fmtMoney(grand.c)}</div>
         <div class="num">${fmtMoney(grand.p1)}</div>
