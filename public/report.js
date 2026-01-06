@@ -22,6 +22,68 @@ const adminBadge = document.getElementById("admin-badge");
 
 const ADMIN_PIN = "0213";
 let adminMode = false;
+// Remember intent: user wanted fullscreen
+let wantsBrowserFullscreen = true;
+
+// Simple overlay prompting user to tap to re-enter fullscreen
+function ensureFsOverlay() {
+  if (document.getElementById("fs-overlay")) return;
+
+  const el = document.createElement("div");
+  el.id = "fs-overlay";
+  el.style.cssText = `
+    position: fixed; inset: 0;
+    display: none;
+    align-items: center; justify-content: center;
+    background: rgba(0,0,0,0.55);
+    z-index: 100000;
+    padding: 20px;
+  `;
+  el.innerHTML = `
+    <button id="fs-overlay-btn" class="btn btn-primary" type="button"
+      style="font-size:22px; padding:16px 18px; border-radius:14px;">
+      Tap to resume
+    </button>
+  `;
+  document.body.appendChild(el);
+
+  document
+    .getElementById("fs-overlay-btn")
+    .addEventListener("click", async () => {
+      el.style.display = "none";
+      await requestBrowserFullscreenFromGesture();
+    });
+}
+
+async function requestBrowserFullscreenFromGesture() {
+  const docEl = document.documentElement;
+  try {
+    const req =
+      docEl.requestFullscreen ||
+      docEl.webkitRequestFullscreen ||
+      docEl.msRequestFullscreen;
+    if (req) await req.call(docEl);
+  } catch (e) {
+    console.error(e);
+  } finally {
+    refreshFullscreenBtnLabel();
+  }
+}
+
+function showFsOverlayIfNeeded() {
+  ensureFsOverlay();
+
+  const inFs = !!(
+    document.fullscreenElement || document.webkitFullscreenElement
+  );
+  const overlay = document.getElementById("fs-overlay");
+
+  if (wantsBrowserFullscreen && !inFs) {
+    overlay.style.display = "flex";
+  } else {
+    overlay.style.display = "none";
+  }
+}
 
 let logoTapCount = 0;
 let logoTapResetTimer = null;
@@ -45,7 +107,6 @@ function refreshFullscreenBtnLabel() {
   );
   fullscreenBtn.textContent = inFs ? "Exit Fullscreen" : "Fullscreen";
 }
-
 async function toggleFullscreen() {
   const docEl = document.documentElement;
 
@@ -53,6 +114,9 @@ async function toggleFullscreen() {
     const inFs = !!(
       document.fullscreenElement || document.webkitFullscreenElement
     );
+
+    // record what the user wants
+    wantsBrowserFullscreen = !inFs;
 
     if (!inFs) {
       const req =
@@ -72,8 +136,25 @@ async function toggleFullscreen() {
     alert("Fullscreen could not be started (browser may block it).");
   } finally {
     refreshFullscreenBtnLabel();
+    showFsOverlayIfNeeded();
   }
 }
+
+document.addEventListener("fullscreenchange", () => {
+  refreshFullscreenBtnLabel();
+  showFsOverlayIfNeeded();
+});
+document.addEventListener("webkitfullscreenchange", () => {
+  refreshFullscreenBtnLabel();
+  showFsOverlayIfNeeded();
+});
+
+// When returning from sleep/background, fullscreen is often gone.
+// We can't auto-reenter, but we can prompt.
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) showFsOverlayIfNeeded();
+});
+window.addEventListener("pageshow", showFsOverlayIfNeeded);
 
 document.addEventListener("fullscreenchange", refreshFullscreenBtnLabel);
 document.addEventListener("webkitfullscreenchange", refreshFullscreenBtnLabel);
