@@ -26,8 +26,7 @@ const CACHE_KEYS = {
   DISCONNECTED_SINCE: `${CACHE_NS}:DISCONNECTED_SINCE`,
 };
 
-// const DISCONNECT_BANNER_AFTER_MS = 5 * 60 * 1000; // 5 minutes
-const DISCONNECT_BANNER_AFTER_MS = 5; // 5 minutes
+const DISCONNECT_BANNER_AFTER_MS = 5 * 60 * 1000; // 5 minutes
 const BANNER_POLL_MS = 2500;
 
 let disconnectedSince = (() => {
