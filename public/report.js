@@ -1145,6 +1145,127 @@ function getPriorLocDesc(loc) {
   return "";
 }
 
+// --------------------
+// Location message (location_message)
+// If a location has a non-empty message, show a small icon next to the loc number.
+// Clicking opens a modal to view the message.
+// --------------------
+
+function getLocationMessage(loc) {
+  if (!loc || typeof loc !== "object") return "";
+
+  const candidates = [
+    loc.location_message,
+    loc.locationMessage,
+    loc.location_note,
+    loc.locationNote,
+    loc.message,
+    loc.note,
+  ];
+
+  for (const v of candidates) {
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+
+  return "";
+}
+
+function ensureLocationMessageModal() {
+  if (document.getElementById("loc-msg-modal")) return;
+
+  const modalHtml = `
+<div id="loc-msg-modal" class="modal-backdrop" style="display:none;">
+  <div class="modal">
+    <div class="modal-header">
+      <div>
+        <div id="lmm-title" style="font-weight:800; font-size:20px;">Location Message</div>
+        <div id="lmm-subtitle" class="muted mono" style="margin-top:4px;"></div>
+      </div>
+      <button id="lmm-close" class="btn" type="button">✕</button>
+    </div>
+
+    <div class="modal-body">
+      <div id="lmm-locdesc" style="font-weight:700; margin-bottom:10px;"></div>
+      <div id="lmm-body" class="loc-msg-body"></div>
+    </div>
+
+    <div class="modal-footer">
+      <div class="modal-actions">
+        <button id="lmm-ok" class="btn btn-primary" type="button">OK</button>
+      </div>
+    </div>
+  </div>
+</div>
+`;
+  document.body.insertAdjacentHTML("beforeend", modalHtml);
+
+  const close = () => {
+    const m = document.getElementById("loc-msg-modal");
+    if (m) m.style.display = "none";
+  };
+
+  document.getElementById("lmm-close").addEventListener("click", close);
+  document.getElementById("lmm-ok").addEventListener("click", close);
+
+  document.getElementById("loc-msg-modal").addEventListener("click", (e) => {
+    if (e.target && e.target.id === "loc-msg-modal") close();
+  });
+
+  document.addEventListener("keydown", (e) => {
+    const m = document.getElementById("loc-msg-modal");
+    if (e.key === "Escape" && m && m.style.display === "flex") close();
+  });
+}
+
+function openLocationMessageModal({
+  area_num,
+  area_desc,
+  loc_num,
+  loc_desc,
+  message,
+}) {
+  ensureLocationMessageModal();
+
+  const m = document.getElementById("loc-msg-modal");
+  const title = document.getElementById("lmm-title");
+  const subtitle = document.getElementById("lmm-subtitle");
+  const locdescEl = document.getElementById("lmm-locdesc");
+  const body = document.getElementById("lmm-body");
+
+  title.textContent = `Message — LOC ${String(loc_num || "").padStart(5, "0")}`;
+  subtitle.textContent = `AREA ${normalizeAreaNum(area_num)} • ${
+    area_desc || ""
+  }`;
+  locdescEl.textContent = String(loc_desc || "");
+
+  body.textContent = String(message || "");
+
+  m.style.display = "flex";
+}
+
+function wireLocationMessageButtons(root) {
+  (root || document).querySelectorAll(".loc-msg-btn").forEach((btn) => {
+    if (btn.dataset.boundMsg === "1") return;
+    btn.dataset.boundMsg = "1";
+
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      const message = btn.dataset.msg || "";
+      if (!message.trim()) return;
+
+      openLocationMessageModal({
+        area_num: btn.dataset.areaNum || "",
+        area_desc: btn.dataset.areaDesc || "",
+        loc_num: btn.dataset.locNum || "",
+        loc_desc: btn.dataset.locDesc || "",
+        message,
+      });
+    });
+  });
+}
+
 function wirePriorDescButtons(root) {
   (root || document).querySelectorAll(".prior-desc-btn").forEach((btn) => {
     if (btn.dataset.boundPrior === "1") return;
@@ -1758,6 +1879,16 @@ async function loadArea(file) {
         ? `<div id="${id}-prior" class="prior-desc" style="display:none;"></div>`
         : "";
 
+      const locMsg = getLocationMessage(l);
+      const msgBtn = locMsg
+        ? `<button class="loc-msg-btn" type="button" title="View location message"
+              data-msg="${escapeHtml(locMsg)}"
+              data-area-num="${escapeHtml(data.area_num ?? "")}"
+              data-area-desc="${escapeHtml(data.area_desc || "")}"
+              data-loc-num="${escapeHtml(l.loc_num ?? "")}"
+              data-loc-desc="${escapeHtml(l.loc_desc || "")}">📝</button>`
+        : "";
+
       return `
         <div class="report-block">
           <div class="report-row report-grid report-main"
@@ -1769,7 +1900,7 @@ async function loadArea(file) {
                data-loc-desc="${escapeHtml(l.loc_desc || "")}">
             <div class="mono" style="font-size:16px; font-weight:800;">${escapeHtml(
               l.loc_num ?? ""
-            )}${priorBtn}</div>
+            )}${msgBtn}${priorBtn}</div>
             <div class="desc" style="font-size:16px; font-weight:800;">${escapeHtml(
               l.loc_desc || ""
             )}</div>
@@ -1819,6 +1950,8 @@ async function loadArea(file) {
   });
 
   wirePriorDescButtons(content);
+  wireLocationMessageButtons(content);
+
   statusEl.textContent = `Loaded area ${data.area_num}`;
 
   document.getElementById("back-to-areas")?.addEventListener("click", () => {
@@ -1826,12 +1959,10 @@ async function loadArea(file) {
     loadAreaList();
   });
 
-  // Mark this area reviewed (server-side)
+  // Mark as reviewed (server-side)
   const markBtn = document.getElementById("mark-reviewed");
   if (markBtn) {
-    const already = data.reviewed === true;
-
-    if (already) {
+    if (data.reviewed === true) {
       markBtn.textContent = "Reviewed ✓";
       markBtn.disabled = true;
     } else {
@@ -1839,28 +1970,30 @@ async function loadArea(file) {
         markBtn.disabled = true;
         statusEl.textContent = "Marking reviewed…";
 
-        const reviewed_at = new Date().toISOString();
-        const url = `/api/report-exports/${encodeURIComponent(file)}/reviewed`;
-        const body = { reviewed: true, reviewed_at };
-
         try {
-          await postJsonQueued(url, body, {
-            applyLocal: () => {
-              patchCachedFile(file, (d) => {
-                d.reviewed = true;
-                d.reviewed_at = reviewed_at;
-              });
-              patchCachedListReviewedFlag(file, true, reviewed_at);
-            },
-          });
+          const reviewed_at = new Date().toISOString();
+
+          await postJsonQueued(
+            `/api/report-exports/${encodeURIComponent(file)}/reviewed`,
+            { reviewed: true, reviewed_at },
+            {
+              applyLocal: () => {
+                patchCachedFile(file, (d) => {
+                  d.reviewed = true;
+                  d.reviewed_at = reviewed_at;
+                });
+                patchCachedListReviewedFlag(file, true, reviewed_at);
+              },
+            }
+          );
 
           markBtn.textContent = "Reviewed ✓";
-          statusEl.textContent = "Marked area as reviewed.";
+          statusEl.textContent = "Marked reviewed.";
         } catch (e) {
           console.error(e);
           markBtn.disabled = false;
-          alert(`Could not mark reviewed: ${e.message || e}`);
-          statusEl.textContent = "Mark reviewed failed.";
+          alert(`Could not Mark Reviewed: ${e.message || e}`);
+          statusEl.textContent = "Mark Reviewed failed.";
         }
       });
     }
