@@ -302,7 +302,7 @@ main.panel {
 
 .report-indent {
   padding-left: 0;
-  margin-top: 6px;
+  /* padding: 8px 6px; */
 }
 
 /* Column sizing tuned for portrait tablets */
