@@ -8,6 +8,7 @@ const refreshBtn = document.getElementById("btn-refresh");
 const tabToReviewBtn = document.getElementById("tab-to-review");
 const tabReviewedBtn = document.getElementById("tab-reviewed");
 const tabRecountsBtn = document.getElementById("tab-recounts");
+const tabQuestionsBtn = document.getElementById("tab-questions");
 
 const logoEl = document.getElementById("logo");
 const fullscreenBtn = document.getElementById("btn-fullscreen");
@@ -525,6 +526,7 @@ const TABS = {
   TO_REVIEW: "to_review",
   REVIEWED: "reviewed",
   RECOUNTS: "recounts",
+  QUESTIONS: "questions",
 };
 
 let currentTab = TABS.TO_REVIEW;
@@ -536,6 +538,7 @@ function setActiveTab(tab) {
     [tabToReviewBtn, TABS.TO_REVIEW],
     [tabReviewedBtn, TABS.REVIEWED],
     [tabRecountsBtn, TABS.RECOUNTS],
+    [tabQuestionsBtn, TABS.QUESTIONS],
   ];
 
   defs.forEach(([btn, t]) => {
@@ -855,6 +858,130 @@ function extractRecountLocations(reportJson, file) {
     out.push(r);
   }
   return out;
+}
+
+function extractQuestionLocations(reportJson, file) {
+  const data = reportJson || {};
+  const area_num = normalizeAreaNum(data.area_num ?? "");
+  const area_desc = data.area_desc || "";
+  const locs = Array.isArray(data.locations) ? data.locations : [];
+
+  const isQuestionAction = (a) =>
+    !!a &&
+    typeof a === "object" &&
+    String(a.action || a.type || "").toLowerCase() === "question";
+
+  const getActionText = (a) =>
+    a && typeof a === "object"
+      ? String(a.text ?? a.message ?? a.question ?? "")
+      : "";
+
+  const getActionTs = (a) =>
+    a && typeof a === "object" ? String(a.timestamp ?? a.ts ?? "") : "";
+
+  const getLocNum = (loc) => String(loc?.loc_num ?? "");
+  const findLocByNum = (locNum) =>
+    locs.find((l) => getLocNum(l) === String(locNum ?? ""));
+
+  const rows = [];
+
+  // 1) top-level single action
+  if (isQuestionAction(data.location_action || data.locationAction)) {
+    const a = data.location_action || data.locationAction;
+    const match = findLocByNum(a?.loc_num ?? "");
+    rows.push({
+      file,
+      area_num,
+      area_desc,
+      loc_num: match?.loc_num ?? a?.loc_num ?? "",
+      loc_desc: match?.loc_desc || "",
+      message: getActionText(a),
+      timestamp: getActionTs(a),
+    });
+  }
+
+  // 2) top-level arrays
+  const topActions =
+    data.location_actions ||
+    data.locationActions ||
+    data.actions ||
+    (Array.isArray(data.location_action) ? data.location_action : null) ||
+    null;
+
+  if (Array.isArray(topActions)) {
+    for (const a of topActions) {
+      if (!isQuestionAction(a)) continue;
+      const match = findLocByNum(a?.loc_num ?? "");
+      rows.push({
+        file,
+        area_num,
+        area_desc,
+        loc_num: match?.loc_num ?? a?.loc_num ?? "",
+        loc_desc: match?.loc_desc || "",
+        message: getActionText(a),
+        timestamp: getActionTs(a),
+      });
+    }
+  }
+
+  // 3) per-location actions
+  const perLocActions = (loc) => {
+    if (!loc || typeof loc !== "object") return [];
+
+    const one = loc.location_action || loc.locationAction;
+    const list =
+      loc.actions ||
+      loc.location_actions ||
+      loc.locationActions ||
+      (Array.isArray(loc.location_action) ? loc.location_action : null) ||
+      null;
+
+    const out = [];
+    if (isQuestionAction(one)) out.push(one);
+    if (Array.isArray(list)) out.push(...list.filter(isQuestionAction));
+    return out;
+  };
+
+  for (const l of locs) {
+    const acts = perLocActions(l);
+    if (acts.length === 0) continue;
+
+    // keep the latest by timestamp ordering if present; otherwise last in array
+    const last = acts
+      .slice()
+      .sort((a, b) =>
+        String(getActionTs(a)).localeCompare(String(getActionTs(b)))
+      )
+      .pop();
+
+    rows.push({
+      file,
+      area_num,
+      area_desc,
+      loc_num: l.loc_num ?? "",
+      loc_desc: l.loc_desc || "",
+      message: getActionText(last),
+      timestamp: getActionTs(last),
+    });
+  }
+
+  // 4) dedupe by area+loc, keep newest timestamp (or last encountered)
+  const bestByKey = new Map();
+  for (const r of rows) {
+    const key = `${String(r.area_num || "")}::${String(r.loc_num || "")}`;
+    const prev = bestByKey.get(key);
+    if (!prev) {
+      bestByKey.set(key, r);
+      continue;
+    }
+
+    const a = String(prev.timestamp || "");
+    const b = String(r.timestamp || "");
+    if (b && (!a || b.localeCompare(a) > 0)) bestByKey.set(key, r);
+    else if (!a && !b) bestByKey.set(key, r);
+  }
+
+  return Array.from(bestByKey.values()).map(({ timestamp, ...rest }) => rest);
 }
 
 function jumpToLocationInView(loc_num) {
@@ -1398,6 +1525,7 @@ async function loadAreaList() {
           reviewed: data.reviewed === true,
 
           recounts: extractRecountLocations(data, it.file),
+          questions: extractQuestionLocations(data, it.file),
         };
       } catch {
         return {
@@ -1408,6 +1536,7 @@ async function loadAreaList() {
           group_id: null,
           reviewed: false,
           recounts: [],
+          questions: [],
         };
       }
     })
@@ -1471,6 +1600,49 @@ async function loadAreaList() {
       li.addEventListener("click", async () => {
         await loadArea(r.file);
         jumpToLocationInView(r.loc_num);
+      });
+
+      areaList.appendChild(li);
+    }
+    return;
+  }
+
+  // ---- Questions tab ----
+  if (currentTab === TABS.QUESTIONS) {
+    const questionRows = enriched
+      .flatMap((e) => e.questions || [])
+      .sort((a, b) => {
+        const aa = String(a.area_num || "");
+        const ba = String(b.area_num || "");
+        if (aa !== ba) return aa.localeCompare(ba);
+        return String(a.loc_num || "").localeCompare(String(b.loc_num || ""));
+      });
+
+    statusEl.textContent = `${questionRows.length} question location(s).`;
+
+    if (questionRows.length === 0) {
+      areaList.innerHTML = `<li class="muted">No questions.</li>`;
+      return;
+    }
+
+    for (const q of questionRows) {
+      const li = document.createElement("li");
+      const locLabel = String(q.loc_num || "").padStart(5, "0");
+      const msg = (q.message || "").trim();
+
+      li.innerHTML = `
+      <div><strong>LOC ${escapeHtml(locLabel)} — ${escapeHtml(
+        q.loc_desc || ""
+      )}</strong></div>
+      <div class="mono muted">AREA ${escapeHtml(
+        q.area_num || ""
+      )} • ${escapeHtml(q.area_desc || "")}</div>
+      ${msg ? `<div class="muted">${escapeHtml(msg)}</div>` : ""}
+    `;
+
+      li.addEventListener("click", async () => {
+        await loadArea(q.file);
+        jumpToLocationInView(q.loc_num);
       });
 
       areaList.appendChild(li);
@@ -2005,6 +2177,7 @@ refreshBtn?.addEventListener("click", loadAreaList);
 tabToReviewBtn?.addEventListener("click", () => setActiveTab(TABS.TO_REVIEW));
 tabReviewedBtn?.addEventListener("click", () => setActiveTab(TABS.REVIEWED));
 tabRecountsBtn?.addEventListener("click", () => setActiveTab(TABS.RECOUNTS));
+tabQuestionsBtn?.addEventListener("click", () => setActiveTab(TABS.QUESTIONS));
 
 // Ensure tab UI is in sync on first load
 setActiveTab(currentTab);
