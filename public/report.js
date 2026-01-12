@@ -9,6 +9,7 @@ const tabToReviewBtn = document.getElementById("tab-to-review");
 const tabReviewedBtn = document.getElementById("tab-reviewed");
 const tabRecountsBtn = document.getElementById("tab-recounts");
 const tabQuestionsBtn = document.getElementById("tab-questions");
+const tabChatBtn = document.getElementById("tab-chat");
 
 const logoEl = document.getElementById("logo");
 const fullscreenBtn = document.getElementById("btn-fullscreen");
@@ -23,6 +24,7 @@ const CACHE_KEYS = {
   LIST: `${CACHE_NS}:GET:/api/report-exports`,
   FILE: (file) =>
     `${CACHE_NS}:GET:/api/report-exports/${encodeURIComponent(file)}`,
+  CHAT: `${CACHE_NS}:GET:/api/report-exports/chatlog.json`,
   PENDING: `${CACHE_NS}:PENDING_QUEUE`,
   DISCONNECTED_SINCE: `${CACHE_NS}:DISCONNECTED_SINCE`,
 };
@@ -527,6 +529,7 @@ const TABS = {
   REVIEWED: "reviewed",
   RECOUNTS: "recounts",
   QUESTIONS: "questions",
+  CHAT: "chat",
 };
 
 let currentTab = TABS.TO_REVIEW;
@@ -539,6 +542,7 @@ function setActiveTab(tab) {
     [tabReviewedBtn, TABS.REVIEWED],
     [tabRecountsBtn, TABS.RECOUNTS],
     [tabQuestionsBtn, TABS.QUESTIONS],
+    [tabChatBtn, TABS.CHAT],
   ];
 
   defs.forEach(([btn, t]) => {
@@ -547,6 +551,12 @@ function setActiveTab(tab) {
     btn.classList.toggle("active", active);
     btn.setAttribute("aria-selected", active ? "true" : "false");
   });
+
+  // Chat is its own view; do not run area list loading.
+  if (tab === TABS.CHAT) {
+    loadChatView();
+    return;
+  }
 
   // Reload list view if we're currently on the list screen.
   if (currentView.type === "list") {
@@ -1463,11 +1473,242 @@ function wireLocationRowClicks(root, viewContext) {
 }
 
 // --------------------
+// Chat log (chatlog.json)
+// - GET  /api/report-exports/chatlog.json
+// - POST /api/report-exports/chatlog.json  (server appends to chatlog.json)
+// --------------------
+
+const CHAT_NAME_KEY = "report_chat_name_v1";
+
+function getChatName() {
+  const v = (localStorage.getItem(CHAT_NAME_KEY) || "").trim();
+  return v;
+}
+function setChatName(v) {
+  localStorage.setItem(CHAT_NAME_KEY, String(v || "").trim());
+}
+
+function normalizeChatPayload(raw) {
+  // Accept either:
+  // 1) array of messages
+  // 2) { messages: [...] }
+  // 3) anything else -> []
+  if (Array.isArray(raw)) return raw;
+  if (raw && typeof raw === "object" && Array.isArray(raw.messages))
+    return raw.messages;
+  return [];
+}
+
+function fmtChatTime(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return String(iso);
+  return d.toLocaleString();
+}
+
+function renderChatMessages(messages) {
+  const box = document.getElementById("chat-messages");
+  if (!box) return;
+
+  const arr = (messages || [])
+    .slice()
+    .filter((m) => m && typeof m === "object")
+    .sort((a, b) =>
+      String(a.timestamp || "").localeCompare(String(b.timestamp || ""))
+    );
+
+  if (arr.length === 0) {
+    box.innerHTML = `<div class="muted">No messages yet.</div>`;
+    return;
+  }
+
+  box.innerHTML = arr
+    .map((m) => {
+      const name = (m.name ?? m.user ?? "").toString().trim() || "User";
+      const text = (m.text ?? m.message ?? "").toString();
+      const ts = (m.timestamp ?? m.ts ?? "").toString();
+
+      return `
+        <div class="chat-row">
+          <div class="chat-meta">
+            <span class="chat-name">${escapeHtml(name)}</span>
+            <span class="chat-time">${escapeHtml(fmtChatTime(ts))}</span>
+          </div>
+          <div class="chat-text">${escapeHtml(text)}</div>
+        </div>
+      `;
+    })
+    .join("");
+
+  // Keep scrolled to bottom for newest messages
+  box.scrollTop = box.scrollHeight;
+}
+
+async function loadChatView() {
+  currentView.type = "chat";
+  currentView.file = null;
+  currentView.groupId = null;
+  currentView.members = null;
+
+  // Show both panels so tabs stay available
+  setSplitMode("split");
+
+  // Sidebar list becomes non-functional in chat mode (keeps UI simple)
+  areaList.innerHTML = `<li class="muted" style="cursor:default;">Chat Log</li>`;
+
+  content.innerHTML = `
+    <div class="chat-wrap">
+      <div class="chat-header">
+        <h2>Chat Log</h2>
+        <span class="muted" id="chat-status"></span>
+      </div>
+
+      <div id="chat-messages" class="chat-messages"></div>
+
+      <div class="chat-form">
+        <input id="chat-name" class="chat-name-input" type="text" inputmode="text" autocomplete="name" placeholder="Your name" />
+        <textarea id="chat-input" class="chat-input" rows="3" placeholder="Type a message..."></textarea>
+        <button id="chat-send" class="btn btn-primary" type="button">Send</button>
+      </div>
+
+      <div class="muted" style="font-size:14px;">
+        Messages save to chatlog.json (offline-safe).
+      </div>
+    </div>
+  `;
+
+  const nameEl = document.getElementById("chat-name");
+  const inputEl = document.getElementById("chat-input");
+  const sendBtn = document.getElementById("chat-send");
+  const chatStatus = document.getElementById("chat-status");
+
+  const existingName = getChatName();
+  if (nameEl) nameEl.value = existingName;
+
+  // Load messages
+  statusEl.textContent = "Loading chat…";
+  if (chatStatus) chatStatus.textContent = "Loading…";
+
+  let messages = [];
+  try {
+    const out = await fetchJsonWithCache(
+      "/api/report-exports/chatlog.json",
+      CACHE_KEYS.CHAT
+    );
+    messages = normalizeChatPayload(out.data);
+
+    if (out.fromCache) {
+      if (chatStatus) chatStatus.textContent = "Loaded (cached)";
+      statusEl.textContent = "Chat loaded (cached).";
+    } else {
+      if (chatStatus) chatStatus.textContent = "Loaded";
+      statusEl.textContent = "Chat loaded.";
+    }
+  } catch (e) {
+    console.error(e);
+    if (chatStatus) chatStatus.textContent = "Failed to load";
+    statusEl.textContent = `Failed to load chat. ${e.message || e}`;
+
+    // Still try to render any cached chat if present
+    const cached = cacheGet(CACHE_KEYS.CHAT);
+    messages = normalizeChatPayload(cached?.data);
+  }
+
+  renderChatMessages(messages);
+
+  function optimisticAppend(msgObj) {
+    // Patch cached chat
+    const cached = cacheGet(CACHE_KEYS.CHAT);
+    const current = normalizeChatPayload(cached?.data);
+
+    current.push(msgObj);
+
+    // Preserve original shape if it was {messages:[...]}
+    const nextData =
+      cached &&
+      cached.data &&
+      typeof cached.data === "object" &&
+      !Array.isArray(cached.data)
+        ? { ...cached.data, messages: current }
+        : current;
+
+    cacheSet(CACHE_KEYS.CHAT, { ts: Date.now(), data: nextData });
+    renderChatMessages(current);
+  }
+
+  async function sendMessage() {
+    const name = (nameEl?.value || "").trim();
+    const text = (inputEl?.value || "").trim();
+
+    if (!text) return;
+
+    setChatName(name);
+
+    const msgObj = {
+      name: name || "User",
+      text,
+      timestamp: new Date().toISOString(),
+    };
+
+    if (sendBtn) sendBtn.disabled = true;
+    if (chatStatus) chatStatus.textContent = "Saving…";
+    statusEl.textContent = "Saving chat…";
+
+    try {
+      const result = await postJsonQueued(
+        "/api/report-exports/chatlog.json",
+        msgObj,
+        {
+          applyLocal: () => optimisticAppend(msgObj),
+        }
+      );
+
+      // If not queued, refresh from server to reflect the canonical file
+      if (!result.queued) {
+        const out = await fetchJsonWithCache(
+          "/api/report-exports/chatlog.json",
+          CACHE_KEYS.CHAT
+        );
+        const refreshed = normalizeChatPayload(out.data);
+        renderChatMessages(refreshed);
+      }
+
+      if (inputEl) inputEl.value = "";
+
+      if (result.queued) {
+        if (chatStatus) chatStatus.textContent = "Saved offline (queued)";
+        statusEl.textContent = "Chat saved offline (queued).";
+      } else {
+        if (chatStatus) chatStatus.textContent = "Saved";
+        statusEl.textContent = "Chat saved.";
+      }
+    } catch (e) {
+      console.error(e);
+      alert(`Could not send message: ${e.message || e}`);
+      if (chatStatus) chatStatus.textContent = "Save failed";
+      statusEl.textContent = "Chat save failed.";
+    } finally {
+      if (sendBtn) sendBtn.disabled = false;
+    }
+  }
+
+  sendBtn?.addEventListener("click", sendMessage);
+
+  inputEl?.addEventListener("keydown", (e) => {
+    // Enter sends, Shift+Enter = newline
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  });
+}
+
+// --------------------
 // Views / navigation
 // --------------------
 
 const currentView = {
-  type: "list", // "list" | "area" | "group"
+  type: "list", // "list" | "area" | "group" | "chat"
   file: null,
   groupId: null,
   members: null,
@@ -2178,6 +2419,7 @@ tabToReviewBtn?.addEventListener("click", () => setActiveTab(TABS.TO_REVIEW));
 tabReviewedBtn?.addEventListener("click", () => setActiveTab(TABS.REVIEWED));
 tabRecountsBtn?.addEventListener("click", () => setActiveTab(TABS.RECOUNTS));
 tabQuestionsBtn?.addEventListener("click", () => setActiveTab(TABS.QUESTIONS));
+tabChatBtn?.addEventListener("click", () => setActiveTab(TABS.CHAT));
 
 // Ensure tab UI is in sync on first load
 setActiveTab(currentTab);

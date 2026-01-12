@@ -635,3 +635,103 @@ body.admin-mode #admin-badge {
   margin-left: 8px;
   white-space: nowrap;
 }
+
+/* --------------------
+   Chat log UI
+-------------------- */
+
+.chat-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.chat-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.chat-header h2 {
+  margin: 0;
+  font-size: 22px;
+}
+
+.chat-messages {
+  height: min(62vh, 640px);
+  overflow-y: auto;
+  padding: 10px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: rgba(17, 17, 17, 0.02);
+}
+
+.chat-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 10px;
+  border-radius: 14px;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  background: #fff;
+  margin-bottom: 10px;
+}
+
+.chat-meta {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: baseline;
+  font-size: 14px;
+}
+
+.chat-name {
+  font-weight: 900;
+}
+
+.chat-time {
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.chat-text {
+  font-size: 18px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.chat-form {
+  display: grid;
+  grid-template-columns: 220px 1fr auto;
+  gap: 10px;
+  align-items: start;
+}
+
+.chat-input,
+.chat-name-input {
+  width: 100%;
+  font-size: 16px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  font-family: Inter, system-ui, sans-serif;
+}
+
+.chat-input {
+  resize: vertical;
+  min-height: 52px;
+}
+
+.chat-input:focus,
+.chat-name-input:focus {
+  outline: none;
+  border-color: rgba(153, 0, 0, 0.6);
+  box-shadow: 0 0 0 4px rgba(153, 0, 0, 0.12);
+}
+
+@media (max-width: 900px) {
+  .chat-form {
+    grid-template-columns: 1fr;
+  }
+}

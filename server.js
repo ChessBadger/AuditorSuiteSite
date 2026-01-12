@@ -89,7 +89,11 @@ function preloadReportExports() {
     try {
       const raw = fs.readFileSync(path.join(REPORT_DIR, f), "utf8");
       const data = JSON.parse(raw);
-      reportExportCache.set(f, data);
+      if (f.toLowerCase() === CHATLOG_FILE) {
+        reportExportCache.set(f, normalizeChatlogData(data));
+      } else {
+        reportExportCache.set(f, data);
+      }
     } catch (err) {
       console.warn(`Skipping invalid report export JSON ${f}: ${err.message}`);
     }
@@ -109,7 +113,12 @@ if (fs.existsSync(REPORT_DIR)) {
     if (fs.existsSync(filePath)) {
       try {
         const raw = fs.readFileSync(filePath, "utf8");
-        reportExportCache.set(filename, JSON.parse(raw));
+        const parsed = JSON.parse(raw);
+        if (filename.toLowerCase() === CHATLOG_FILE) {
+          reportExportCache.set(filename, normalizeChatlogData(parsed));
+        } else {
+          reportExportCache.set(filename, parsed);
+        }
         console.log(`Reloaded report export ${filename} into cache`);
       } catch (err) {
         console.warn(
@@ -327,12 +336,145 @@ app.get("/api/report-exports", (req, res) => {
   res.json(list);
 });
 
+// GET chatlog.json
+app.get("/api/report-exports/chatlog.json", (req, res) => {
+  try {
+    let messages = reportExportCache.get(CHATLOG_FILE);
+    if (!Array.isArray(messages)) {
+      messages = ensureChatlogArrayOnDisk();
+      reportExportCache.set(CHATLOG_FILE, messages);
+    }
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
+    return res.status(200).json(messages);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST chatlog.json (append)
+app.post("/api/report-exports/chatlog.json", (req, res) => {
+  try {
+    const { name, text, timestamp } = req.body || {};
+    if (!text || typeof text !== "string" || !text.trim()) {
+      return res.status(400).json({ error: "Missing message text" });
+    }
+
+    let messages = reportExportCache.get(CHATLOG_FILE);
+    if (!Array.isArray(messages)) {
+      messages = ensureChatlogArrayOnDisk();
+    }
+
+    const entry = {
+      name: typeof name === "string" && name.trim() ? name.trim() : "User",
+      text: text.trim(),
+      timestamp:
+        typeof timestamp === "string" ? timestamp : new Date().toISOString(),
+    };
+
+    messages.push(entry);
+
+    // Atomic write
+    const tmpPath = CHATLOG_PATH + ".tmp";
+    fs.writeFileSync(tmpPath, JSON.stringify(messages, null, 2) + "\n", "utf8");
+    fs.renameSync(tmpPath, CHATLOG_PATH);
+
+    // Update cache with the array (canonical)
+    reportExportCache.set(CHATLOG_FILE, messages);
+
+    return res.json({ success: true });
+  } catch (err) {
+    console.error("Chatlog write failed:", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // Fetch one area export by filename (e.g. 40051.json)
 app.get("/api/report-exports/:file", (req, res) => {
   const file = req.params.file;
   const data = reportExportCache.get(file);
   if (!data) return res.status(404).json({ error: "Report export not found" });
   res.json(data);
+});
+
+// ─── CHAT LOG (chatlog.json) ───────────────────────────────────────────
+
+const CHATLOG_FILE = "chatlog.json";
+const CHATLOG_PATH = path.join(REPORT_DIR, CHATLOG_FILE);
+
+function normalizeChatlogData(data) {
+  if (Array.isArray(data)) return data;
+  if (data && typeof data === "object" && Array.isArray(data.messages))
+    return data.messages;
+  return [];
+}
+
+function ensureChatlogArrayOnDisk() {
+  if (!fs.existsSync(CHATLOG_PATH)) {
+    fs.writeFileSync(CHATLOG_PATH, "[]\n", "utf8");
+    return [];
+  }
+  try {
+    const raw = fs.readFileSync(CHATLOG_PATH, "utf8");
+    const parsed = JSON.parse(raw || "[]");
+    const arr = normalizeChatlogData(parsed);
+
+    // Canonicalize file to array so future loads are consistent
+    const tmpPath = CHATLOG_PATH + ".tmp";
+    fs.writeFileSync(tmpPath, JSON.stringify(arr, null, 2) + "\n", "utf8");
+    fs.renameSync(tmpPath, CHATLOG_PATH);
+
+    return arr;
+  } catch {
+    fs.writeFileSync(CHATLOG_PATH, "[]\n", "utf8");
+    return [];
+  }
+}
+
+// GET chatlog.json
+app.get("/api/report-exports/chatlog.json", (req, res) => {
+  try {
+    const messages = reportExportCache.get(CHATLOG_FILE) ?? ensureChatlog();
+
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
+    res.status(200).json(messages);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST chatlog.json (append message)
+app.post("/api/report-exports/chatlog.json", (req, res) => {
+  try {
+    const { name, text, timestamp } = req.body || {};
+
+    if (!text || typeof text !== "string") {
+      return res.status(400).json({ error: "Missing message text" });
+    }
+
+    const messages = reportExportCache.get(CHATLOG_FILE) ?? ensureChatlog();
+
+    const entry = {
+      name: typeof name === "string" && name.trim() ? name.trim() : "User",
+      text: text.trim(),
+      timestamp:
+        typeof timestamp === "string" ? timestamp : new Date().toISOString(),
+    };
+
+    messages.push(entry);
+
+    // Atomic write (same pattern you already use)
+    const tmpPath = CHATLOG_PATH + ".tmp";
+    fs.writeFileSync(tmpPath, JSON.stringify(messages, null, 2), "utf8");
+    fs.renameSync(tmpPath, CHATLOG_PATH);
+
+    // Update cache
+    reportExportCache.set(CHATLOG_FILE, messages);
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Chatlog write failed:", err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ─── POST location actions (recount / question) ───
