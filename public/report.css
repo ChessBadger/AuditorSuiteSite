@@ -626,3 +626,12 @@ body.admin-mode #admin-badge {
   background: #fff;
   font-size: 16px;
 }
+
+/* Keep Prior Desc + Message buttons on one horizontal line */
+.loc-icon-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 25px;
+  margin-left: 8px;
+  white-space: nowrap;
+}

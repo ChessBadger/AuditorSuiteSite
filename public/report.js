@@ -2072,7 +2072,7 @@ async function loadArea(file) {
                data-loc-desc="${escapeHtml(l.loc_desc || "")}">
             <div class="mono" style="font-size:16px; font-weight:800;">${escapeHtml(
               l.loc_num ?? ""
-            )}${msgBtn}${priorBtn}</div>
+            )}<span class="loc-icon-row">${msgBtn}${priorBtn}</span></div>
             <div class="desc" style="font-size:16px; font-weight:800;">${escapeHtml(
               l.loc_desc || ""
             )}</div>
