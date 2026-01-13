@@ -23,8 +23,9 @@ const CUST_MASTER_FILE = path.join(JSON_DIR, "cust_master.json");
  */
 function preloadReports() {
   const files = fs
-    .readdirSync(JSON_DIR)
-    .filter((f) => f.toLowerCase().endsWith(".json"));
+    .readdirSync(REPORT_DIR)
+    .filter((f) => f.toLowerCase().endsWith(".json"))
+    .filter((f) => f.toLowerCase() !== "chatlog.json");
 
   files.forEach((f) => {
     try {
@@ -42,6 +43,7 @@ function preloadReports() {
 // Watch for changes in JSON_DIR and reload individual files
 fs.watch(JSON_DIR, (event, filename) => {
   if (!filename || !filename.toLowerCase().endsWith(".json")) return;
+  if (filename.toLowerCase() === "chatlog.json") return;
 
   const filePath = path.join(JSON_DIR, filename);
   if (fs.existsSync(filePath)) {
@@ -123,10 +125,95 @@ if (fs.existsSync(REPORT_DIR)) {
   });
 }
 
+// --- Chat log (Report-Site/chatlog.json) ---
+// Canonical format:
+// { "messages": [ { "timestamp": "...", "user": "...", "message": "..." } ] }
+const CHATLOG_FILE = path.join(REPORT_DIR, "chatlog.json");
+let chatLog = { messages: [] };
+
+function normalizeJsonText(raw) {
+  return String(raw || "")
+    .replace(/^\uFEFF/, "")
+    .replace(/\u0000/g, "")
+    .trim();
+}
+
+function normalizeChatMessage(m) {
+  // Accept either {user,message,timestamp} or legacy {from,text,timestamp}
+  const timestamp =
+    String(m?.timestamp ?? "").trim() || new Date().toISOString();
+  const user = String(m?.user ?? m?.from ?? "").trim();
+  const message = String(m?.message ?? m?.text ?? "").trim();
+
+  if (!user || !message) return null;
+
+  return { timestamp, user, message };
+}
+
+function loadChatLogFromDisk() {
+  try {
+    if (!fs.existsSync(REPORT_DIR)) return;
+
+    if (!fs.existsSync(CHATLOG_FILE)) {
+      chatLog = { messages: [] };
+      saveChatLogToDisk();
+      return;
+    }
+
+    const raw = normalizeJsonText(fs.readFileSync(CHATLOG_FILE, "utf8"));
+    if (!raw) {
+      chatLog = { messages: [] };
+      saveChatLogToDisk();
+      return;
+    }
+
+    const parsed = JSON.parse(raw);
+
+    let msgs = [];
+    if (Array.isArray(parsed)) {
+      msgs = parsed;
+    } else if (
+      parsed &&
+      typeof parsed === "object" &&
+      Array.isArray(parsed.messages)
+    ) {
+      msgs = parsed.messages;
+    }
+
+    const normalized = [];
+    for (const m of msgs) {
+      const nm = normalizeChatMessage(m);
+      if (nm) normalized.push(nm);
+    }
+
+    chatLog = { messages: normalized };
+  } catch (e) {
+    console.warn("Failed to load chatlog.json:", e.message);
+    chatLog = { messages: [] };
+  }
+}
+
+function saveChatLogToDisk() {
+  const tmp = CHATLOG_FILE + ".tmp";
+  fs.writeFileSync(tmp, JSON.stringify(chatLog, null, 2), "utf8");
+  fs.renameSync(tmp, CHATLOG_FILE);
+}
+
+// Reload chat in memory if edited externally
+if (fs.existsSync(REPORT_DIR)) {
+  fs.watch(REPORT_DIR, (event, filename) => {
+    if (!filename) return;
+    if (String(filename).toLowerCase() === "chatlog.json") {
+      loadChatLogFromDisk();
+    }
+  });
+}
+
 // Preload at startup
 preloadReports();
 preloadReportExports();
 preloadCustMaster();
+loadChatLogFromDisk();
 
 // allow up to 10 MB of JSON
 app.use(express.json({ limit: "10mb" }));
@@ -312,10 +399,14 @@ app.get("/api/records", (req, res) => {
   });
 });
 
-// List available area exports
+// List available area exports (EXCLUDES chatlog.json)
 app.get("/api/report-exports", (req, res) => {
   const list = Array.from(reportExportCache.entries())
-    .filter(([_, data]) => !!data && !!data.area_num)
+    .filter(([file, data]) => {
+      if (!data || !data.area_num) return false;
+      if (String(file).toLowerCase() === "chatlog.json") return false;
+      return true;
+    })
     .map(([file, data]) => ({
       file,
       area_num: data.area_num,
@@ -325,6 +416,47 @@ app.get("/api/report-exports", (req, res) => {
     .sort((a, b) => String(a.area_num).localeCompare(String(b.area_num)));
 
   res.json(list);
+});
+
+// --------------------
+// Chatlog API
+// GET returns { messages: [...] }
+// POST appends a message and persists to Report-Site/chatlog.json
+// --------------------
+
+app.get("/api/chatlog", (req, res) => {
+  res.json(chatLog);
+});
+
+app.post("/api/chatlog", (req, res) => {
+  // Accept either canonical or legacy post body:
+  // canonical: { user, message, timestamp }
+  // legacy:    { from, text, timestamp }
+  const user = "Store Manager";
+  const message = String(req.body?.message ?? req.body?.text ?? "").trim();
+  const timestamp =
+    String(req.body?.timestamp ?? "").trim() || new Date().toISOString();
+
+  if (!user) return res.status(400).json({ error: "Missing user" });
+  if (!message) return res.status(400).json({ error: "Missing message" });
+
+  const msg = { timestamp, user, message };
+
+  if (!Array.isArray(chatLog.messages)) chatLog.messages = [];
+  chatLog.messages.push(msg);
+
+  // cap growth
+  if (chatLog.messages.length > 2000) {
+    chatLog.messages = chatLog.messages.slice(chatLog.messages.length - 2000);
+  }
+
+  try {
+    saveChatLogToDisk();
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+
+  res.json({ success: true, message: msg });
 });
 
 // Fetch one area export by filename (e.g. 40051.json)
@@ -367,6 +499,58 @@ app.post("/api/report-exports/:file/location-action", (req, res) => {
     text: text || "",
     timestamp: timestamp || new Date().toISOString(),
   });
+
+  // --- Chat log (Report-Site/chatlog.json) ---
+  const CHATLOG_FILE = path.join(REPORT_DIR, "chatlog.json");
+  let chatLog = { messages: [] };
+
+  function loadChatLogFromDisk() {
+    try {
+      if (!fs.existsSync(CHATLOG_FILE)) {
+        // create empty file if missing
+        fs.writeFileSync(
+          CHATLOG_FILE,
+          JSON.stringify(chatLog, null, 2),
+          "utf8"
+        );
+        return;
+      }
+
+      const raw = fs.readFileSync(CHATLOG_FILE, "utf8");
+      const parsed = JSON.parse(raw);
+
+      if (Array.isArray(parsed)) {
+        chatLog = { messages: parsed };
+      } else if (parsed && typeof parsed === "object") {
+        chatLog = {
+          messages: Array.isArray(parsed.messages) ? parsed.messages : [],
+        };
+      } else {
+        chatLog = { messages: [] };
+      }
+    } catch (e) {
+      console.warn("Failed to load chatlog.json:", e.message);
+      chatLog = { messages: [] };
+    }
+  }
+
+  function saveChatLogToDisk() {
+    // atomic write
+    const tmp = CHATLOG_FILE + ".tmp";
+    fs.writeFileSync(tmp, JSON.stringify(chatLog, null, 2), "utf8");
+    fs.renameSync(tmp, CHATLOG_FILE);
+  }
+
+  // reload if edited externally
+  if (fs.existsSync(REPORT_DIR)) {
+    fs.watch(REPORT_DIR, (event, filename) => {
+      if (!filename) return;
+      if (String(filename).toLowerCase() === "chatlog.json") {
+        loadChatLogFromDisk();
+        return;
+      }
+    });
+  }
 
   // Persist to disk
   const filePath = path.join(REPORT_DIR, file);
@@ -454,6 +638,45 @@ app.post("/api/report-exports/:file/reviewed", (req, res) => {
     reviewed,
     reviewed_at: data.reviewed_at,
   });
+});
+
+// --------------------
+// Chatlog API
+// --------------------
+app.get("/api/chatlog", (req, res) => {
+  res.json(chatLog);
+});
+
+app.post("/api/chatlog", (req, res) => {
+  const from = String(req.body?.from ?? "").trim();
+  const text = String(req.body?.text ?? "").trim();
+  const timestamp =
+    String(req.body?.timestamp ?? "").trim() || new Date().toISOString();
+
+  if (!from) return res.status(400).json({ error: "Missing from" });
+  if (!text) return res.status(400).json({ error: "Missing text" });
+
+  const msg = {
+    id: `${Date.now()}_${Math.random().toString(16).slice(2)}`,
+    from,
+    text,
+    timestamp,
+  };
+
+  if (!Array.isArray(chatLog.messages)) chatLog.messages = [];
+  chatLog.messages.push(msg);
+
+  if (chatLog.messages.length > 2000) {
+    chatLog.messages = chatLog.messages.slice(chatLog.messages.length - 2000);
+  }
+
+  try {
+    saveChatLogToDisk();
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+
+  res.json({ success: true, message: msg });
 });
 
 // ─── POST /api/reports/:name/complete ───

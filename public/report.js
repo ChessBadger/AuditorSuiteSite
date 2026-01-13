@@ -4,6 +4,7 @@ const areaList = document.getElementById("area-list");
 const content = document.getElementById("content");
 const statusEl = document.getElementById("status");
 const refreshBtn = document.getElementById("btn-refresh");
+const chatBtn = document.getElementById("btn-chat");
 
 const tabToReviewBtn = document.getElementById("tab-to-review");
 const tabReviewedBtn = document.getElementById("tab-reviewed");
@@ -23,6 +24,7 @@ const CACHE_KEYS = {
   LIST: `${CACHE_NS}:GET:/api/report-exports`,
   FILE: (file) =>
     `${CACHE_NS}:GET:/api/report-exports/${encodeURIComponent(file)}`,
+  CHAT: `${CACHE_NS}:GET:/api/chatlog`,
   PENDING: `${CACHE_NS}:PENDING_QUEUE`,
   DISCONNECTED_SINCE: `${CACHE_NS}:DISCONNECTED_SINCE`,
 };
@@ -1463,6 +1465,265 @@ function wireLocationRowClicks(root, viewContext) {
 }
 
 // --------------------
+// Chat log (view + send) backed by /api/chatlog (Report-Site/chatlog.json)
+// No search; tablet-optimized modal.
+// --------------------
+const CHAT_USER = "Store Manager";
+
+const chatState = {
+  open: false,
+  loading: false,
+};
+
+function ensureChatModal() {
+  if (document.getElementById("chatlog-modal")) return;
+
+  const html = `
+<div id="chatlog-modal" class="modal-backdrop" style="display:none;">
+  <div class="modal chat-modal">
+    <div class="modal-header">
+      <div>
+        <div style="font-weight:900; font-size:20px;">Chat Log</div>
+        <div id="chat-sub" class="muted mono" style="margin-top:4px;">Shared for this station</div>
+      </div>
+      <button id="chat-close" class="btn" type="button">✕</button>
+    </div>
+
+    <div id="chat-body" class="chat-body" aria-live="polite"></div>
+
+    <div class="chat-compose">
+      <div class="chat-compose-row">
+        <textarea id="chat-input" class="chat-input" rows="2" placeholder="Type a message…"></textarea>
+        <button id="chat-send" class="btn btn-primary chat-send" type="button">Send</button>
+      </div>
+    </div>
+  </div>
+</div>
+`;
+  document.body.insertAdjacentHTML("beforeend", html);
+
+  const close = () => closeChatModal();
+
+  document.getElementById("chat-close").addEventListener("click", close);
+  document.getElementById("chatlog-modal").addEventListener("click", (e) => {
+    if (e.target && e.target.id === "chatlog-modal") close();
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && chatState.open) close();
+  });
+
+  document
+    .getElementById("chat-send")
+    .addEventListener("click", sendChatMessage);
+
+  // Enter to send; Shift+Enter for newline
+  document.getElementById("chat-input").addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendChatMessage();
+    }
+  });
+}
+
+function openChatModal() {
+  ensureChatModal();
+  chatState.open = true;
+  const m = document.getElementById("chatlog-modal");
+  m.style.display = "flex";
+
+  // load + render immediately
+  loadAndRenderChat({ scrollToBottom: true });
+
+  // focus input for fast entry on tablet
+  setTimeout(() => {
+    const ta = document.getElementById("chat-input");
+    ta?.focus();
+  }, 50);
+}
+
+function closeChatModal() {
+  chatState.open = false;
+  const m = document.getElementById("chatlog-modal");
+  if (m) m.style.display = "none";
+}
+
+function groupByDay(messages) {
+  const out = [];
+  let lastDay = null;
+
+  for (const msg of messages) {
+    const ts = String(msg.timestamp || "");
+    const d = new Date(ts);
+    const dayKey = Number.isNaN(d.getTime())
+      ? "Unknown date"
+      : d.toLocaleDateString(undefined, {
+          year: "numeric",
+          month: "short",
+          day: "numeric",
+        });
+
+    if (dayKey !== lastDay) {
+      out.push({ kind: "day", label: dayKey });
+      lastDay = dayKey;
+    }
+    out.push({ kind: "msg", msg });
+  }
+
+  return out;
+}
+
+function renderChat(chatObj, { scrollToBottom } = {}) {
+  const body = document.getElementById("chat-body");
+  if (!body) return;
+
+  const msgs = Array.isArray(chatObj?.messages) ? chatObj.messages : [];
+  const sorted = msgs.slice().sort((a, b) => {
+    const ta = Date.parse(a.timestamp || "");
+    const tb = Date.parse(b.timestamp || "");
+
+    // If both parse, sort by actual time (oldest -> newest)
+    if (Number.isFinite(ta) && Number.isFinite(tb)) return ta - tb;
+
+    // Fallback: stable-ish string compare if timestamps aren't ISO
+    return String(a.timestamp || "").localeCompare(String(b.timestamp || ""));
+  });
+
+  if (sorted.length === 0) {
+    body.innerHTML = `<div class="muted" style="padding:10px;">No messages yet.</div>`;
+    return;
+  }
+
+  const items = groupByDay(sorted);
+
+  body.innerHTML = items
+    .map((it) => {
+      if (it.kind === "day") {
+        return `<div class="chat-day">${escapeHtml(it.label)}</div>`;
+      }
+
+      const m = it.msg || {};
+      const from = String(m.user || m.from || "Unknown");
+      const text = String(m.message || m.text || "");
+      const d = new Date(String(m.timestamp || ""));
+      const time = Number.isNaN(d.getTime())
+        ? ""
+        : d.toLocaleTimeString(undefined, {
+            hour: "2-digit",
+            minute: "2-digit",
+          });
+
+      return `
+<div class="chat-msg">
+  <div class="chat-meta">
+    <div class="chat-from">${escapeHtml(from)}</div>
+    <div class="chat-time mono">${escapeHtml(time)}</div>
+  </div>
+  <div class="chat-bubble">${escapeHtml(text)}</div>
+</div>`;
+    })
+    .join("");
+
+  if (scrollToBottom) {
+    body.scrollTop = body.scrollHeight;
+  }
+}
+
+async function loadAndRenderChat({ scrollToBottom } = {}) {
+  const body = document.getElementById("chat-body");
+  if (!body) return;
+
+  try {
+    chatState.loading = true;
+    body.innerHTML = `<div class="muted" style="padding:10px;">Loading chat…</div>`;
+
+    const out = await fetchJsonWithCache("/api/chatlog", CACHE_KEYS.CHAT);
+    renderChat(out.data, { scrollToBottom });
+
+    if (out.fromCache) {
+      // if cached, be explicit but unobtrusive
+      statusEl.textContent = "Chat loaded (cached).";
+    }
+  } catch (e) {
+    console.error(e);
+    body.innerHTML = `<div class="muted" style="padding:10px;">Could not load chat.</div>`;
+  } finally {
+    chatState.loading = false;
+  }
+}
+
+function patchCachedChat(mutator) {
+  const cached = cacheGet(CACHE_KEYS.CHAT);
+  if (!cached || cached.data === undefined) return;
+
+  const data = cached.data;
+  if (!data || typeof data !== "object") return;
+
+  try {
+    mutator(data);
+    cacheSet(CACHE_KEYS.CHAT, { ...cached, ts: Date.now(), data });
+  } catch (e) {
+    console.warn("patchCachedChat failed", e);
+  }
+}
+
+async function sendChatMessage() {
+  const name = CHAT_USER;
+
+  const ta = document.getElementById("chat-input");
+  const btn = document.getElementById("chat-send");
+  if (!ta || !btn) return;
+
+  const text = String(ta.value || "").trim();
+  if (!text) return;
+
+  btn.disabled = true;
+  ta.disabled = true;
+
+  const payload = {
+    user: name,
+    message: text,
+    timestamp: new Date().toISOString(),
+  };
+
+  try {
+    const result = await postJsonQueued("/api/chatlog", payload, {
+      applyLocal: () => {
+        // Optimistic update so chat works offline
+        patchCachedChat((data) => {
+          if (Array.isArray(data)) {
+            data.push({ id: `${Date.now()}_local`, ...payload });
+            return;
+          }
+          if (!Array.isArray(data.messages)) data.messages = [];
+          data.messages.push({ id: `${Date.now()}_local`, ...payload });
+        });
+      },
+    });
+
+    ta.value = "";
+
+    if (result.queued) {
+      statusEl.textContent = "Message saved offline (queued).";
+      // render from cache after optimistic append
+      const cached = cacheGet(CACHE_KEYS.CHAT);
+      renderChat(cached?.data, { scrollToBottom: true });
+    } else {
+      statusEl.textContent = "Message sent.";
+      await loadAndRenderChat({ scrollToBottom: true });
+    }
+  } catch (e) {
+    console.error(e);
+    alert(`Could not send: ${e.message || e}`);
+    statusEl.textContent = "Send failed.";
+  } finally {
+    btn.disabled = false;
+    ta.disabled = false;
+    ta.focus();
+  }
+}
+
+// --------------------
 // Views / navigation
 // --------------------
 
@@ -2178,6 +2439,7 @@ tabToReviewBtn?.addEventListener("click", () => setActiveTab(TABS.TO_REVIEW));
 tabReviewedBtn?.addEventListener("click", () => setActiveTab(TABS.REVIEWED));
 tabRecountsBtn?.addEventListener("click", () => setActiveTab(TABS.RECOUNTS));
 tabQuestionsBtn?.addEventListener("click", () => setActiveTab(TABS.QUESTIONS));
+chatBtn?.addEventListener("click", () => openChatModal());
 
 // Ensure tab UI is in sync on first load
 setActiveTab(currentTab);
