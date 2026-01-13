@@ -747,3 +747,30 @@ body.admin-mode #admin-badge {
   font-size: 18px;
   font-weight: 900;
 }
+
+/* Left/right alignment depending on sender */
+.chat-msg.chat-me {
+  align-items: flex-end; /* pushes bubble/meta to the right */
+}
+
+.chat-msg.chat-me .chat-meta {
+  justify-content: flex-end;
+  text-align: right;
+}
+
+.chat-msg.chat-me .chat-bubble {
+  align-self: flex-end;
+  background: var(--primary);
+  color: #fff;
+  border-color: rgba(153, 0, 0, 0.35);
+  border-top-right-radius: 6px; /* gives the "tail" feel */
+}
+
+/* Optional: keep "them" explicitly left (matches your current behavior) */
+.chat-msg.chat-them {
+  align-items: flex-start;
+}
+
+.chat-msg.chat-them .chat-bubble {
+  border-top-left-radius: 6px;
+}

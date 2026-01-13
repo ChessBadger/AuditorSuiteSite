@@ -1709,7 +1709,6 @@ function ensureChatModal() {
     <div class="modal-header">
       <div>
         <div style="font-weight:900; font-size:20px;">Chat Log</div>
-        <div id="chat-sub" class="muted mono" style="margin-top:4px;">Shared for this station</div>
       </div>
       <button id="chat-close" class="btn" type="button">✕</button>
     </div>
@@ -1838,8 +1837,13 @@ function renderChat(chatObj, { scrollToBottom } = {}) {
             minute: "2-digit",
           });
 
+      const isMe =
+        String(from).trim().toLowerCase() ===
+        String(CHAT_USER).trim().toLowerCase();
+      const whoClass = isMe ? "chat-me" : "chat-them";
+
       return `
-<div class="chat-msg">
+<div class="chat-msg ${whoClass}">
   <div class="chat-meta">
     <div class="chat-from">${escapeHtml(from)}</div>
     <div class="chat-time mono">${escapeHtml(time)}</div>
