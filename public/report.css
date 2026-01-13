@@ -639,12 +639,21 @@ body.admin-mode #admin-badge {
 /* --------------------
    Chat modal (tablet-optimized)
 -------------------- */
+:root {
+  --kb: 0px; /* keyboard overlay height */
+}
 
 .chat-modal {
   width: min(900px, 98vw);
-  height: min(86vh, 920px);
+  height: min(calc(var(--vvh, 1vh) * 86), 920px);
+  padding-bottom: calc(var(--kb) + env(safe-area-inset-bottom, 0px));
   display: flex;
   flex-direction: column;
+}
+
+.chatlog {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .chat-body {

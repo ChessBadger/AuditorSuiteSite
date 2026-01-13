@@ -164,6 +164,56 @@ function looksLikeNetworkError(err) {
   );
 }
 
+function installVisualViewportFixForChat() {
+  const setVars = () => {
+    const vv = window.visualViewport;
+
+    const innerH = window.innerHeight;
+    const vvH = vv ? vv.height : innerH;
+
+    // Android keyboards often reduce vv.height and may also change offsetTop.
+    // "Covered" area is the difference between layout viewport and visual viewport.
+    const kb = Math.max(0, innerH - vvH - (vv?.offsetTop || 0));
+
+    // vvh for general sizing
+    const h = vv ? vvH : innerH;
+    document.documentElement.style.setProperty("--vvh", `${h * 0.01}px`);
+
+    // keyboard inset for lifting composer
+    document.documentElement.style.setProperty("--kb", `${kb}px`);
+  };
+
+  setVars();
+  window.addEventListener("resize", setVars);
+  window.visualViewport?.addEventListener("resize", setVars);
+  window.visualViewport?.addEventListener("scroll", setVars);
+
+  document.addEventListener(
+    "focusin",
+    (e) => {
+      if (e.target && e.target.id === "chat-input") {
+        setTimeout(() => {
+          setVars();
+          // bring the composer into view (end is better than center here)
+          e.target.scrollIntoView({ block: "end", behavior: "smooth" });
+        }, 100);
+      }
+    },
+    true
+  );
+
+  document.addEventListener(
+    "focusout",
+    (e) => {
+      if (e.target && e.target.id === "chat-input") {
+        // when keyboard closes, reset soon after
+        setTimeout(setVars, 100);
+      }
+    },
+    true
+  );
+}
+
 async function fetchJsonWithCache(url, cacheKey) {
   // classify for eviction policy
   const metaType =
@@ -1703,14 +1753,14 @@ function ensureChatModal() {
 
 function openChatModal() {
   ensureChatModal();
+  installVisualViewportFixForChat();
+
   chatState.open = true;
   const m = document.getElementById("chatlog-modal");
   m.style.display = "flex";
 
-  // load + render immediately
   loadAndRenderChat({ scrollToBottom: true });
 
-  // focus input for fast entry on tablet
   setTimeout(() => {
     const ta = document.getElementById("chat-input");
     ta?.focus();
