@@ -165,6 +165,14 @@ function looksLikeNetworkError(err) {
 }
 
 async function fetchJsonWithCache(url, cacheKey) {
+  // classify for eviction policy
+  const metaType =
+    cacheKey === CACHE_KEYS.LIST
+      ? "list"
+      : cacheKey === CACHE_KEYS.CHAT
+      ? "chat"
+      : "file"; // most are per-area files
+
   try {
     const res = await fetch(url, { method: "GET" });
 
@@ -180,10 +188,14 @@ async function fetchJsonWithCache(url, cacheKey) {
 
     const data = await res.json();
 
-    cacheSet(cacheKey, {
-      ts: Date.now(),
-      data,
-    });
+    await cacheSetLarge(
+      cacheKey,
+      {
+        ts: Date.now(),
+        data,
+      },
+      metaType
+    );
 
     // on successful contact, try flushing any queued writes
     flushPendingQueue();
@@ -195,7 +207,7 @@ async function fetchJsonWithCache(url, cacheKey) {
       markDisconnected();
       updateDisconnectUI();
 
-      const cached = cacheGet(cacheKey);
+      const cached = await cacheGetLarge(cacheKey);
       if (cached && cached.data !== undefined) {
         return { data: cached.data, fromCache: true };
       }
@@ -1463,6 +1475,169 @@ function wireLocationRowClicks(root, viewContext) {
       });
     });
 }
+
+// --------------------
+// IndexedDB cache (for large GET responses)
+// --------------------
+
+// Tune these if you want more/less offline history
+const IDB_NAME = "report_cache_db_v1";
+const IDB_KV_STORE = "kv";
+const IDB_META_STORE = "meta";
+const MAX_CACHED_FILES = 60; // keep last N area JSON files on-device
+
+let __idbPromise = null;
+
+function openIdb() {
+  if (__idbPromise) return __idbPromise;
+  __idbPromise = new Promise((resolve, reject) => {
+    const req = indexedDB.open(IDB_NAME, 1);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(IDB_KV_STORE)) {
+        db.createObjectStore(IDB_KV_STORE);
+      }
+      if (!db.objectStoreNames.contains(IDB_META_STORE)) {
+        db.createObjectStore(IDB_META_STORE);
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error || new Error("IndexedDB open failed"));
+  });
+  return __idbPromise;
+}
+
+function idbTx(db, storeName, mode, fn) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, mode);
+    const store = tx.objectStore(storeName);
+    let outReq;
+    try {
+      outReq = fn(store);
+    } catch (e) {
+      reject(e);
+      return;
+    }
+    tx.oncomplete = () => resolve(outReq?.result);
+    tx.onabort = () => reject(tx.error || new Error("IndexedDB tx aborted"));
+    tx.onerror = () => reject(tx.error || new Error("IndexedDB tx error"));
+  });
+}
+
+async function idbGet(key) {
+  const db = await openIdb();
+  return idbTx(db, IDB_KV_STORE, "readonly", (store) => store.get(key));
+}
+
+async function idbSet(key, valueObj) {
+  const db = await openIdb();
+  // Save data
+  await idbTx(db, IDB_KV_STORE, "readwrite", (store) =>
+    store.put(valueObj, key)
+  );
+}
+
+async function idbDel(key) {
+  const db = await openIdb();
+  await idbTx(db, IDB_KV_STORE, "readwrite", (store) => store.delete(key));
+}
+
+async function idbMetaSet(key, metaObj) {
+  const db = await openIdb();
+  await idbTx(db, IDB_META_STORE, "readwrite", (store) =>
+    store.put(metaObj, key)
+  );
+}
+
+async function idbMetaGetAllEntries() {
+  const db = await openIdb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_META_STORE, "readonly");
+    const store = tx.objectStore(IDB_META_STORE);
+    const req = store.getAll(); // values
+    const reqKeys = store.getAllKeys(); // keys
+    tx.oncomplete = () => {
+      const keys = reqKeys.result || [];
+      const vals = req.result || [];
+      const entries = keys.map((k, i) => [k, vals[i]]);
+      resolve(entries);
+    };
+    tx.onerror = () =>
+      reject(tx.error || new Error("IndexedDB meta read failed"));
+    tx.onabort = () => reject(tx.error || new Error("IndexedDB meta aborted"));
+  });
+}
+
+function isLargeCacheKey(key) {
+  // Only move the big GET payloads into IndexedDB
+  // LIST, FILE, CHAT all start with `${CACHE_NS}:GET:`
+  return typeof key === "string" && key.startsWith(`${CACHE_NS}:GET:`);
+}
+
+async function cacheGetLarge(key) {
+  if (!isLargeCacheKey(key)) return cacheGet(key); // your existing localStorage cacheGet
+  try {
+    const obj = await idbGet(key);
+    if (!obj || typeof obj !== "object") return null;
+    return obj;
+  } catch (e) {
+    console.warn("idb cacheGet failed", e);
+    return null;
+  }
+}
+
+async function cacheSetLarge(key, valueObj, metaType) {
+  if (!isLargeCacheKey(key)) {
+    cacheSet(key, valueObj); // your existing localStorage cacheSet
+    return;
+  }
+
+  try {
+    await idbSet(key, valueObj);
+    // Track for eviction
+    await idbMetaSet(key, {
+      ts: valueObj?.ts || Date.now(),
+      type: metaType || "get",
+    });
+    if (metaType === "file") await evictOldFilesIfNeeded();
+  } catch (e) {
+    console.warn("idb cacheSet failed", e);
+  }
+}
+
+async function evictOldFilesIfNeeded() {
+  try {
+    const entries = await idbMetaGetAllEntries();
+    const fileEntries = entries
+      .filter(([k, v]) => v && v.type === "file")
+      .map(([k, v]) => ({ key: k, ts: Number(v.ts) || 0 }))
+      .sort((a, b) => a.ts - b.ts); // oldest first
+
+    const excess = fileEntries.length - MAX_CACHED_FILES;
+    if (excess <= 0) return;
+
+    const toDelete = fileEntries.slice(0, excess);
+    for (const it of toDelete) {
+      await idbDel(it.key);
+      // also delete meta
+      const db = await openIdb();
+      await idbTx(db, IDB_META_STORE, "readwrite", (store) =>
+        store.delete(it.key)
+      );
+    }
+  } catch (e) {
+    console.warn("evictOldFilesIfNeeded failed", e);
+  }
+}
+
+// Optional: ask the browser to keep storage persistent (helps on Android)
+(async function requestPersistentStorage() {
+  try {
+    if (navigator.storage?.persist) {
+      await navigator.storage.persist();
+    }
+  } catch {}
+})();
 
 // --------------------
 // Chat log (view + send) backed by /api/chatlog (Report-Site/chatlog.json)
