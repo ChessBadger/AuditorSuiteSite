@@ -18,6 +18,91 @@ const reportExportCache = new Map();
 
 let skuMaster = [];
 const CUST_MASTER_FILE = path.join(JSON_DIR, "cust_master.json");
+
+// --- Persistent location actions store (survives server restarts / export regeneration) ---
+if (!fs.existsSync(REPORT_DIR)) fs.mkdirSync(REPORT_DIR, { recursive: true });
+
+const LOCATION_ACTIONS_FILE = path.join(REPORT_DIR, "location_actions.json");
+// Shape: { "<file>": [ { area_num, loc_num, action, text, timestamp } , ... ] }
+let locationActionsStore = {};
+
+function normalizeJsonText(raw) {
+  return String(raw || "")
+    .replace(/^\uFEFF/, "")
+    .replace(/\u0000/g, "")
+    .trim();
+}
+
+function loadLocationActionsFromDisk() {
+  try {
+    if (!fs.existsSync(LOCATION_ACTIONS_FILE)) {
+      locationActionsStore = {};
+      saveLocationActionsToDisk();
+      return;
+    }
+    const raw = normalizeJsonText(
+      fs.readFileSync(LOCATION_ACTIONS_FILE, "utf8"),
+    );
+    if (!raw) {
+      locationActionsStore = {};
+      saveLocationActionsToDisk();
+      return;
+    }
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      locationActionsStore = parsed;
+    } else {
+      locationActionsStore = {};
+      saveLocationActionsToDisk();
+    }
+  } catch (e) {
+    console.warn("Failed to load location_actions.json:", e.message);
+    locationActionsStore = {};
+  }
+}
+
+function saveLocationActionsToDisk() {
+  const tmp = LOCATION_ACTIONS_FILE + ".tmp";
+  fs.writeFileSync(tmp, JSON.stringify(locationActionsStore, null, 2), "utf8");
+  fs.renameSync(tmp, LOCATION_ACTIONS_FILE);
+}
+
+function getStoredActionsForFile(file) {
+  const arr = locationActionsStore[file];
+  return Array.isArray(arr) ? arr : [];
+}
+
+function mergeLocationActions(baseArr, storedArr) {
+  const out = [];
+  const seen = new Set();
+
+  const pushUnique = (a) => {
+    if (!a || typeof a !== "object") return;
+    const loc_num = String(a.loc_num ?? "");
+    const action = String(a.action ?? a.type ?? "").toLowerCase();
+    const text = String(a.text ?? a.message ?? a.question ?? "");
+    const timestamp = String(a.timestamp ?? a.ts ?? "");
+    if (!loc_num || !action) return;
+
+    const key = `${loc_num}::${action}::${timestamp}::${text}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+
+    out.push({
+      area_num: a.area_num,
+      loc_num,
+      action,
+      text,
+      timestamp,
+    });
+  };
+
+  (Array.isArray(baseArr) ? baseArr : []).forEach(pushUnique);
+  (Array.isArray(storedArr) ? storedArr : []).forEach(pushUnique);
+
+  return out;
+}
+
 /**
  * Preload every .json in JSON_DIR into reportCache
  */
@@ -98,7 +183,7 @@ function preloadReportExports() {
   });
 
   console.log(
-    `Preloaded ${reportExportCache.size} report-export JSON files into memory`
+    `Preloaded ${reportExportCache.size} report-export JSON files into memory`,
   );
 }
 
@@ -115,7 +200,7 @@ if (fs.existsSync(REPORT_DIR)) {
         console.log(`Reloaded report export ${filename} into cache`);
       } catch (err) {
         console.warn(
-          `Failed to reload report export ${filename}: ${err.message}`
+          `Failed to reload report export ${filename}: ${err.message}`,
         );
       }
     } else {
@@ -214,6 +299,7 @@ preloadReports();
 preloadReportExports();
 preloadCustMaster();
 loadChatLogFromDisk();
+loadLocationActionsFromDisk();
 
 // allow up to 10 MB of JSON
 app.use(express.json({ limit: "10mb" }));
@@ -341,7 +427,7 @@ app.get("/api/locations", (req, res) => {
         // keep the lowest one
         grouped[area_desc].area_num = Math.min(
           grouped[area_desc].area_num,
-          AREA_NUM
+          AREA_NUM,
         );
         grouped[area_desc].locations.add(`${LOC_NUM} - ${loc_desc}`);
       });
@@ -462,9 +548,20 @@ app.post("/api/chatlog", (req, res) => {
 // Fetch one area export by filename (e.g. 40051.json)
 app.get("/api/report-exports/:file", (req, res) => {
   const file = req.params.file;
-  const data = reportExportCache.get(file);
-  if (!data) return res.status(404).json({ error: "Report export not found" });
-  res.json(data);
+  const base = reportExportCache.get(file);
+  if (!base) return res.status(404).json({ error: "Report export not found" });
+
+  // clone so we don't permanently mutate the cached base export object
+  const out = JSON.parse(JSON.stringify(base));
+
+  const baseActions = Array.isArray(out.location_actions)
+    ? out.location_actions
+    : [];
+  const stored = getStoredActionsForFile(file);
+
+  out.location_actions = mergeLocationActions(baseActions, stored);
+
+  res.json(out);
 });
 
 // ─── POST location actions (recount / question) ───
@@ -478,92 +575,60 @@ app.post("/api/report-exports/:file/location-action", (req, res) => {
 
   const { area_num, loc_num, action, text, timestamp } = req.body;
 
-  if (!loc_num || !action) {
+  const locNumStr = String(loc_num ?? "").trim();
+  const actionStr = String(action ?? "")
+    .trim()
+    .toLowerCase();
+
+  if (!locNumStr || !actionStr) {
     return res.status(400).json({ error: "Missing loc_num or action" });
   }
 
-  if (!["recount", "question"].includes(action)) {
+  if (!["recount", "question"].includes(actionStr)) {
     return res.status(400).json({ error: "Invalid action type" });
   }
 
-  // Ensure actions array exists
-  if (!Array.isArray(data.location_actions)) {
-    data.location_actions = [];
-  }
-
-  // Record the action
-  data.location_actions.push({
+  const actionObj = {
     area_num,
-    loc_num,
-    action,
-    text: text || "",
-    timestamp: timestamp || new Date().toISOString(),
-  });
+    loc_num: locNumStr,
+    action: actionStr,
+    text: String(text ?? ""),
+    timestamp: String(timestamp ?? "").trim() || new Date().toISOString(),
+  };
 
-  // --- Chat log (Report-Site/chatlog.json) ---
-  const CHATLOG_FILE = path.join(REPORT_DIR, "chatlog.json");
-  let chatLog = { messages: [] };
+  // 1) Persist into the dedicated store (survives restarts / export regeneration)
+  if (!Array.isArray(locationActionsStore[file]))
+    locationActionsStore[file] = [];
+  locationActionsStore[file].push(actionObj);
 
-  function loadChatLogFromDisk() {
-    try {
-      if (!fs.existsSync(CHATLOG_FILE)) {
-        // create empty file if missing
-        fs.writeFileSync(
-          CHATLOG_FILE,
-          JSON.stringify(chatLog, null, 2),
-          "utf8"
-        );
-        return;
-      }
-
-      const raw = fs.readFileSync(CHATLOG_FILE, "utf8");
-      const parsed = JSON.parse(raw);
-
-      if (Array.isArray(parsed)) {
-        chatLog = { messages: parsed };
-      } else if (parsed && typeof parsed === "object") {
-        chatLog = {
-          messages: Array.isArray(parsed.messages) ? parsed.messages : [],
-        };
-      } else {
-        chatLog = { messages: [] };
-      }
-    } catch (e) {
-      console.warn("Failed to load chatlog.json:", e.message);
-      chatLog = { messages: [] };
-    }
+  // optional cap so the store file can't grow forever
+  if (locationActionsStore[file].length > 5000) {
+    locationActionsStore[file] = locationActionsStore[file].slice(-5000);
   }
 
-  function saveChatLogToDisk() {
-    // atomic write
-    const tmp = CHATLOG_FILE + ".tmp";
-    fs.writeFileSync(tmp, JSON.stringify(chatLog, null, 2), "utf8");
-    fs.renameSync(tmp, CHATLOG_FILE);
-  }
-
-  // reload if edited externally
-  if (fs.existsSync(REPORT_DIR)) {
-    fs.watch(REPORT_DIR, (event, filename) => {
-      if (!filename) return;
-      if (String(filename).toLowerCase() === "chatlog.json") {
-        loadChatLogFromDisk();
-        return;
-      }
-    });
-  }
-
-  // Persist to disk
-  const filePath = path.join(REPORT_DIR, file);
   try {
-    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), "utf8");
+    saveLocationActionsToDisk();
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
 
-  // Update in-memory cache
+  // 2) Also update the cached export object so UI sees it immediately
+  if (!Array.isArray(data.location_actions)) data.location_actions = [];
+  data.location_actions.push(actionObj);
+
+  // 3) Write back the export file atomically (best-effort redundancy)
+  const filePath = path.join(REPORT_DIR, file);
+  try {
+    const tmpPath = filePath + ".tmp";
+    fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2), "utf8");
+    fs.renameSync(tmpPath, filePath);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+
   reportExportCache.set(file, data);
 
-  res.json({ success: true });
+  return res.json({ success: true, action: actionObj });
 });
 
 // ─── POST /api/reports/:name ───
@@ -731,7 +796,7 @@ app.post("/api/reports/:name/complete", (req, res) => {
       req.body.records.forEach((rec) => {
         const nm = rec.employee_name;
         const stillHas = reps2.some((r) =>
-          r.data.records?.some((r2) => r2.employee_name === nm)
+          r.data.records?.some((r2) => r2.employee_name === nm),
         );
         if (!stillHas) {
           empData[nm] = true;
