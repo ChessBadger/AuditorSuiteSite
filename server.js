@@ -33,6 +33,11 @@ function normalizeJsonText(raw) {
     .trim();
 }
 
+function readJsonFile(filePath) {
+  const raw = normalizeJsonText(fs.readFileSync(filePath, "utf8"));
+  return JSON.parse(raw);
+}
+
 function loadLocationActionsFromDisk() {
   try {
     if (!fs.existsSync(LOCATION_ACTIONS_FILE)) {
@@ -174,8 +179,7 @@ function preloadReportExports() {
 
   files.forEach((f) => {
     try {
-      const raw = fs.readFileSync(path.join(REPORT_DIR, f), "utf8");
-      const data = JSON.parse(raw);
+      const data = readJsonFile(path.join(REPORT_DIR, f));
       reportExportCache.set(f, data);
     } catch (err) {
       console.warn(`Skipping invalid report export JSON ${f}: ${err.message}`);
@@ -195,8 +199,7 @@ if (fs.existsSync(REPORT_DIR)) {
     const filePath = path.join(REPORT_DIR, filename);
     if (fs.existsSync(filePath)) {
       try {
-        const raw = fs.readFileSync(filePath, "utf8");
-        reportExportCache.set(filename, JSON.parse(raw));
+        reportExportCache.set(filename, readJsonFile(filePath));
         console.log(`Reloaded report export ${filename} into cache`);
       } catch (err) {
         console.warn(
