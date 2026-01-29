@@ -787,8 +787,8 @@ body.admin-mode #admin-badge {
 .btn.has-notif::after {
   content: "";
   position: absolute;
-  top: -4px;
-  right: 8px;
+  top: -2px;
+  right: 0x;
   width: 12px;
   height: 12px;
   border-radius: 999px;
