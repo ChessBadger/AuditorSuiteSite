@@ -23,7 +23,20 @@ const CUST_MASTER_FILE = path.join(JSON_DIR, "cust_master.json");
 if (!fs.existsSync(REPORT_DIR)) fs.mkdirSync(REPORT_DIR, { recursive: true });
 
 const LOCATION_ACTIONS_FILE = path.join(REPORT_DIR, "location_actions.json");
-// Shape: { "<file>": [ { area_num, loc_num, action, text, timestamp } , ... ] }
+// Shape:
+// {
+//   "<file>": [
+//     {
+//       area_num,
+//       loc_num,
+//       action,      // "recount" | "question"
+//       text,        // reason or question
+//       timestamp,   // when the action was created
+//       reply,       // optional: manager reply to a question
+//       reply_at     // optional: when reply was added
+//     },
+//   ]
+// }
 let locationActionsStore = {};
 
 function normalizeJsonText(raw) {
@@ -78,32 +91,75 @@ function getStoredActionsForFile(file) {
 }
 
 function mergeLocationActions(baseArr, storedArr) {
-  const out = [];
-  const seen = new Set();
+  // Dedupe by (loc_num, action, timestamp, text) while preserving reply fields.
+  // Important: If a later version of the same action gains a reply, we must
+  // keep that reply so the UI can show it under the Questions tab.
 
-  const pushUnique = (a) => {
-    if (!a || typeof a !== "object") return;
-    const loc_num = String(a.loc_num ?? "");
-    const action = String(a.action ?? a.type ?? "").toLowerCase();
+  const map = new Map();
+
+  const norm = (a) => {
+    if (!a || typeof a !== "object") return null;
+    const loc_num = String(a.loc_num ?? "").trim();
+    const action = String(a.action ?? a.type ?? "")
+      .trim()
+      .toLowerCase();
     const text = String(a.text ?? a.message ?? a.question ?? "");
     const timestamp = String(a.timestamp ?? a.ts ?? "");
-    if (!loc_num || !action) return;
+    const reply = typeof a.reply === "string" ? a.reply : undefined;
+    const reply_at = typeof a.reply_at === "string" ? a.reply_at : undefined;
 
-    const key = `${loc_num}::${action}::${timestamp}::${text}`;
-    if (seen.has(key)) return;
-    seen.add(key);
+    if (!loc_num || !action) return null;
 
-    out.push({
+    return {
       area_num: a.area_num,
       loc_num,
       action,
       text,
       timestamp,
-    });
+      reply,
+      reply_at,
+    };
   };
 
-  (Array.isArray(baseArr) ? baseArr : []).forEach(pushUnique);
-  (Array.isArray(storedArr) ? storedArr : []).forEach(pushUnique);
+  const add = (a) => {
+    const n = norm(a);
+    if (!n) return;
+    const key = `${n.loc_num}::${n.action}::${n.timestamp}::${n.text}`;
+    const prev = map.get(key);
+
+    if (!prev) {
+      map.set(key, n);
+      return;
+    }
+
+    // Merge: prefer reply/reply_at if either version has it.
+    if (typeof prev.reply !== "string" || !prev.reply.trim()) {
+      if (typeof n.reply === "string" && n.reply.trim()) prev.reply = n.reply;
+    }
+
+    if (typeof prev.reply_at !== "string" || !prev.reply_at.trim()) {
+      if (typeof n.reply_at === "string" && n.reply_at.trim())
+        prev.reply_at = n.reply_at;
+    }
+
+    // If area_num is missing on the older one but present on the newer, fill it.
+    if ((prev.area_num === undefined || prev.area_num === null) && n.area_num) {
+      prev.area_num = n.area_num;
+    }
+  };
+
+  (Array.isArray(baseArr) ? baseArr : []).forEach(add);
+  (Array.isArray(storedArr) ? storedArr : []).forEach(add);
+
+  // Return in a stable order: by loc_num, then timestamp, then action.
+  const out = Array.from(map.values());
+  out.sort((a, b) => {
+    const la = String(a.loc_num).localeCompare(String(b.loc_num));
+    if (la) return la;
+    const ta = String(a.timestamp || "").localeCompare(String(b.timestamp || ""));
+    if (ta) return ta;
+    return String(a.action).localeCompare(String(b.action));
+  });
 
   return out;
 }

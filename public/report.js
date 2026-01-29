@@ -29,6 +29,97 @@ const CACHE_KEYS = {
   DISCONNECTED_SINCE: `${CACHE_NS}:DISCONNECTED_SINCE`,
 };
 
+const SEEN_KEYS = {
+  CHAT_LAST_SEEN_MS: `${CACHE_NS}:SEEN_CHAT_LAST_SEEN_MS`,
+  QUESTIONS_REPLY_LAST_SEEN_MS: `${CACHE_NS}:SEEN_QUESTIONS_REPLY_LAST_SEEN_MS`,
+};
+
+let latestChatMsgMs = 0;
+let latestQuestionsReplyMs = 0;
+
+function toMs(ts) {
+  const n = Date.parse(String(ts || ""));
+  return Number.isFinite(n) ? n : 0;
+}
+
+function getSeenMs(key) {
+  const raw = localStorage.getItem(key);
+  const n = raw ? Number(raw) : 0;
+  return Number.isFinite(n) ? n : 0;
+}
+
+function setSeenMs(key, ms) {
+  try {
+    localStorage.setItem(key, String(Number(ms) || 0));
+  } catch {
+    // ignore quota errors
+  }
+}
+
+function setNotif(el, on) {
+  if (!el) return;
+  el.classList.toggle("has-notif", !!on);
+}
+
+function getChatMessages(chatObj) {
+  if (Array.isArray(chatObj)) return chatObj;
+  if (chatObj && Array.isArray(chatObj.messages)) return chatObj.messages;
+  return [];
+}
+
+function computeLatestChatMs(chatObj) {
+  const msgs = getChatMessages(chatObj);
+  let max = 0;
+  for (const m of msgs) {
+    const ms = toMs(m?.timestamp ?? m?.ts ?? m?.time ?? "");
+    if (ms > max) max = ms;
+  }
+  return max;
+}
+
+function computeLatestQuestionsReplyMs(enriched) {
+  let max = 0;
+  for (const e of enriched || []) {
+    const qs = Array.isArray(e?.questions) ? e.questions : [];
+    for (const q of qs) {
+      if (!q || typeof q !== "object") continue;
+      if (!String(q.reply || "").trim()) continue;
+      const ms = toMs(q.reply_at ?? q.replyAt ?? "");
+      if (ms > max) max = ms;
+    }
+  }
+  return max;
+}
+
+async function refreshChatNotification() {
+  try {
+    const out = await fetchJsonWithCache("/api/chatlog", CACHE_KEYS.CHAT);
+    latestChatMsgMs = computeLatestChatMs(out.data);
+    const seen = getSeenMs(SEEN_KEYS.CHAT_LAST_SEEN_MS);
+    setNotif(chatBtn, latestChatMsgMs > seen && !chatState.open);
+  } catch {
+    // ignore
+  }
+}
+
+function refreshQuestionsNotification() {
+  const seen = getSeenMs(SEEN_KEYS.QUESTIONS_REPLY_LAST_SEEN_MS);
+  setNotif(
+    tabQuestionsBtn,
+    latestQuestionsReplyMs > seen && currentTab !== TABS.QUESTIONS,
+  );
+}
+
+function markQuestionsRepliesSeen() {
+  setSeenMs(SEEN_KEYS.QUESTIONS_REPLY_LAST_SEEN_MS, latestQuestionsReplyMs);
+  setNotif(tabQuestionsBtn, false);
+}
+
+function markChatSeen() {
+  setSeenMs(SEEN_KEYS.CHAT_LAST_SEEN_MS, latestChatMsgMs);
+  setNotif(chatBtn, false);
+}
+
 const DISCONNECT_BANNER_AFTER_MS = 5 * 60 * 1000; // 5 minutes
 const BANNER_POLL_MS = 2500;
 
@@ -101,7 +192,7 @@ function markDisconnected() {
     disconnectedSince = Date.now();
     localStorage.setItem(
       CACHE_KEYS.DISCONNECTED_SINCE,
-      String(disconnectedSince)
+      String(disconnectedSince),
     );
   }
   // Do not show banner until 5 minutes have elapsed.
@@ -199,7 +290,7 @@ function installVisualViewportFixForChat() {
         }, 100);
       }
     },
-    true
+    true,
   );
 
   document.addEventListener(
@@ -210,7 +301,7 @@ function installVisualViewportFixForChat() {
         setTimeout(setVars, 100);
       }
     },
-    true
+    true,
   );
 }
 
@@ -220,8 +311,8 @@ async function fetchJsonWithCache(url, cacheKey) {
     cacheKey === CACHE_KEYS.LIST
       ? "list"
       : cacheKey === CACHE_KEYS.CHAT
-      ? "chat"
-      : "file"; // most are per-area files
+        ? "chat"
+        : "file"; // most are per-area files
 
   try {
     const res = await fetch(url, { method: "GET" });
@@ -244,7 +335,7 @@ async function fetchJsonWithCache(url, cacheKey) {
         ts: Date.now(),
         data,
       },
-      metaType
+      metaType,
     );
 
     // on successful contact, try flushing any queued writes
@@ -616,6 +707,10 @@ function setActiveTab(tab) {
   if (currentView.type === "list") {
     loadAreaList();
   }
+
+  // Keep notification dots in sync when switching tabs.
+  refreshQuestionsNotification();
+  refreshChatNotification();
 }
 
 // --------------------
@@ -720,7 +815,7 @@ function renderBreakdown(bd) {
     <div class="num">${fmtMoney(g.ext_price_total_prior2)}</div>
     <div class="num">${fmtMoney(g.ext_price_total_prior3)}</div>
   </div>
-`
+`,
       )
       .join("");
   }
@@ -746,7 +841,7 @@ function renderBreakdown(bd) {
     <div class="num">${fmtMoney(c.ext_price_total_prior2)}</div>
     <div class="num">${fmtMoney(c.ext_price_total_prior3)}</div>
   </div>
-`
+`,
       )
       .join("");
   }
@@ -765,7 +860,7 @@ function renderBreakdown(bd) {
           <div class="num">${fmtMoney(g.ext_price_total_prior2)}</div>
           <div class="num">${fmtMoney(g.ext_price_total_prior3)}</div>
         </div>
-      `
+      `,
       )
       .join("");
   }
@@ -783,7 +878,7 @@ function renderBreakdown(bd) {
           <div class="num">${fmtMoney(c.ext_price_total_prior2)}</div>
           <div class="num">${fmtMoney(c.ext_price_total_prior3)}</div>
         </div>
-      `
+      `,
       )
       .join("");
   }
@@ -943,6 +1038,12 @@ function extractQuestionLocations(reportJson, file) {
   const getActionTs = (a) =>
     a && typeof a === "object" ? String(a.timestamp ?? a.ts ?? "") : "";
 
+  const getActionReply = (a) =>
+    a && typeof a === "object" ? String(a.reply ?? a.answer ?? "") : "";
+
+  const getActionReplyAt = (a) =>
+    a && typeof a === "object" ? String(a.reply_at ?? a.replyAt ?? "") : "";
+
   const getLocNum = (loc) => String(loc?.loc_num ?? "");
   const findLocByNum = (locNum) =>
     locs.find((l) => getLocNum(l) === String(locNum ?? ""));
@@ -961,6 +1062,8 @@ function extractQuestionLocations(reportJson, file) {
       loc_desc: match?.loc_desc || "",
       message: getActionText(a),
       timestamp: getActionTs(a),
+      reply: getActionReply(a),
+      reply_at: getActionReplyAt(a),
     });
   }
 
@@ -984,6 +1087,8 @@ function extractQuestionLocations(reportJson, file) {
         loc_desc: match?.loc_desc || "",
         message: getActionText(a),
         timestamp: getActionTs(a),
+        reply: getActionReply(a),
+        reply_at: getActionReplyAt(a),
       });
     }
   }
@@ -1014,7 +1119,7 @@ function extractQuestionLocations(reportJson, file) {
     const last = acts
       .slice()
       .sort((a, b) =>
-        String(getActionTs(a)).localeCompare(String(getActionTs(b)))
+        String(getActionTs(a)).localeCompare(String(getActionTs(b))),
       )
       .pop();
 
@@ -1026,6 +1131,8 @@ function extractQuestionLocations(reportJson, file) {
       loc_desc: l.loc_desc || "",
       message: getActionText(last),
       timestamp: getActionTs(last),
+      reply: getActionReply(last),
+      reply_at: getActionReplyAt(last),
     });
   }
 
@@ -1045,7 +1152,7 @@ function extractQuestionLocations(reportJson, file) {
     else if (!a && !b) bestByKey.set(key, r);
   }
 
-  return Array.from(bestByKey.values()).map(({ timestamp, ...rest }) => rest);
+  return Array.from(bestByKey.values());
 }
 
 function jumpToLocationInView(loc_num) {
@@ -1053,7 +1160,7 @@ function jumpToLocationInView(loc_num) {
   if (!target) return;
 
   const row = content.querySelector(
-    `.report-row.report-main[data-loc-num="${CSS.escape(target)}"]`
+    `.report-row.report-main[data-loc-num="${CSS.escape(target)}"]`,
   );
 
   if (!row) return;
@@ -1150,7 +1257,7 @@ function renderActionModal() {
     body.innerHTML = `
       <div style="margin-bottom:10px;">
         <div style="font-weight:700; margin-bottom:6px;">${escapeHtml(
-          ctx.loc_desc || ""
+          ctx.loc_desc || "",
         )}</div>
         <div class="muted">What would you like to do?</div>
       </div>
@@ -1238,7 +1345,7 @@ async function submitLocationAction({ action, text }) {
   statusEl.textContent = "Saving…";
 
   const url = `/api/report-exports/${encodeURIComponent(
-    ctx.file
+    ctx.file,
   )}/location-action`;
   const payload = {
     area_num: ctx.area_num,
@@ -1285,7 +1392,7 @@ async function submitLocationAction({ action, text }) {
       statusEl.textContent = `Saved offline (queued).`;
     } else {
       statusEl.textContent = `Saved ${action} for location ${String(
-        ctx.loc_num
+        ctx.loc_num,
       ).padStart(5, "0")}.`;
     }
 
@@ -1583,7 +1690,7 @@ async function idbSet(key, valueObj) {
   const db = await openIdb();
   // Save data
   await idbTx(db, IDB_KV_STORE, "readwrite", (store) =>
-    store.put(valueObj, key)
+    store.put(valueObj, key),
   );
 }
 
@@ -1595,7 +1702,7 @@ async function idbDel(key) {
 async function idbMetaSet(key, metaObj) {
   const db = await openIdb();
   await idbTx(db, IDB_META_STORE, "readwrite", (store) =>
-    store.put(metaObj, key)
+    store.put(metaObj, key),
   );
 }
 
@@ -1672,7 +1779,7 @@ async function evictOldFilesIfNeeded() {
       // also delete meta
       const db = await openIdb();
       await idbTx(db, IDB_META_STORE, "readwrite", (store) =>
-        store.delete(it.key)
+        store.delete(it.key),
       );
     }
   } catch (e) {
@@ -1868,7 +1975,12 @@ async function loadAndRenderChat({ scrollToBottom } = {}) {
 
     const out = await fetchJsonWithCache("/api/chatlog", CACHE_KEYS.CHAT);
     renderChat(out.data, { scrollToBottom });
-
+    latestChatMsgMs = computeLatestChatMs(out.data);
+    if (chatState.open) markChatSeen();
+    else {
+      const seen = getSeenMs(SEEN_KEYS.CHAT_LAST_SEEN_MS);
+      setNotif(chatBtn, latestChatMsgMs > seen);
+    }
     if (out.fromCache) {
       // if cached, be explicit but unobtrusive
       statusEl.textContent = "Chat loaded (cached).";
@@ -1980,7 +2092,7 @@ async function loadAreaList() {
   try {
     const out = await fetchJsonWithCache(
       "/api/report-exports",
-      CACHE_KEYS.LIST
+      CACHE_KEYS.LIST,
     );
     items = out.data;
     if (!Array.isArray(items)) items = [];
@@ -2029,8 +2141,13 @@ async function loadAreaList() {
           questions: [],
         };
       }
-    })
+    }),
   );
+
+  // Update notification state (new replies / new chat)
+  latestQuestionsReplyMs = computeLatestQuestionsReplyMs(enriched);
+  refreshQuestionsNotification();
+  refreshChatNotification();
 
   // group_id -> members[]
   const groups = new Map();
@@ -2050,7 +2167,7 @@ async function loadAreaList() {
   }
 
   const groupEntries = Array.from(groups.entries()).sort((a, b) =>
-    String(a[0]).localeCompare(String(b[0]))
+    String(a[0]).localeCompare(String(b[0])),
   );
   singles.sort((a, b) => String(a.area_num).localeCompare(String(b.area_num)));
 
@@ -2079,10 +2196,10 @@ async function loadAreaList() {
 
       li.innerHTML = `
         <div><strong>LOC ${escapeHtml(locLabel)} — ${escapeHtml(
-        r.loc_desc || ""
-      )}</strong></div>
+          r.loc_desc || "",
+        )}</strong></div>
         <div class="mono muted">AREA ${escapeHtml(
-          r.area_num || ""
+          r.area_num || "",
         )} • ${escapeHtml(r.area_desc || "")}</div>
         ${reason ? `<div class="muted">${escapeHtml(reason)}</div>` : ""}
       `;
@@ -2121,20 +2238,23 @@ async function loadAreaList() {
       const msg = (q.message || "").trim();
 
       li.innerHTML = `
-      <div><strong>LOC ${escapeHtml(locLabel)} — ${escapeHtml(
-        q.loc_desc || ""
-      )}</strong></div>
-      <div class="mono muted">AREA ${escapeHtml(
-        q.area_num || ""
-      )} • ${escapeHtml(q.area_desc || "")}</div>
-      ${msg ? `<div class="muted">${escapeHtml(msg)}</div>` : ""}
-    `;
+  <div><strong>LOC ${escapeHtml(locLabel)} — ${escapeHtml(q.loc_desc || "")}</strong></div>
+  <div class="mono muted">AREA ${escapeHtml(q.area_num || "")} • ${escapeHtml(q.area_desc || "")}</div>
+  ${msg ? `<div class="muted">${escapeHtml(msg)}</div>` : ""}
+  ${
+    String(q.reply || "").trim()
+      ? `<div class="muted" style="margin-top:6px;">
+          <strong>ANSWER: </strong>${escapeHtml(q.reply)}
+        </div>`
+      : ""
+  }
+`;
 
       li.addEventListener("click", async () => {
         await loadArea(q.file);
         jumpToLocationInView(q.loc_num);
       });
-
+      markQuestionsRepliesSeen();
       areaList.appendChild(li);
     }
     return;
@@ -2155,7 +2275,7 @@ async function loadAreaList() {
   };
 
   const visibleGroups = groupEntries.filter(([, members]) =>
-    keepGroup(members)
+    keepGroup(members),
   );
   const visibleSingles = singles.filter((s) => keepSingle(s));
 
@@ -2174,7 +2294,7 @@ async function loadAreaList() {
 
     const locationCount = members.reduce(
       (acc, m) => acc + Number(m.location_count || 0),
-      0
+      0,
     );
 
     const title = buildGroupTitleFromDescriptions(members);
@@ -2228,7 +2348,7 @@ async function loadAreaGroup(groupId, members) {
       const out = await fetchJsonWithCache(url, CACHE_KEYS.FILE(m.file));
       const data = out.data;
       return { meta: m, data };
-    })
+    }),
   );
 
   // report view: fullscreen
@@ -2269,7 +2389,9 @@ async function loadAreaGroup(groupId, members) {
 
   const sectionsHtml = results
     .sort((a, b) =>
-      String(a.data.area_num ?? "").localeCompare(String(b.data.area_num ?? ""))
+      String(a.data.area_num ?? "").localeCompare(
+        String(b.data.area_num ?? ""),
+      ),
     )
     .map(({ meta, data }) => {
       const locs = Array.isArray(data.locations) ? data.locations : [];
@@ -2282,7 +2404,7 @@ async function loadAreaGroup(groupId, members) {
           acc.p3 += Number(l.ext_price_total_prior3 || 0);
           return acc;
         },
-        { c: 0, p1: 0, p2: 0, p3: 0 }
+        { c: 0, p1: 0, p2: 0, p3: 0 },
       );
 
       groupGrand.c += areaGrand.c;
@@ -2308,7 +2430,7 @@ async function loadAreaGroup(groupId, members) {
           const showPrior = l?.show_prior_loc_desc === true;
           const priorBtn = showPrior
             ? `<button class="prior-desc-btn" type="button" title="Show prior location description" data-prior-target="${id}-prior" data-prior-desc="${escapeHtml(
-                priorDesc || ""
+                priorDesc || "",
               )}">↩</button>`
             : "";
           const priorBlock = showPrior
@@ -2325,23 +2447,23 @@ async function loadAreaGroup(groupId, members) {
                    data-loc-num="${escapeHtml(l.loc_num ?? "")}"
                    data-loc-desc="${escapeHtml(l.loc_desc || "")}">
                 <div class="mono" style="font-size:16px; font-weight:800;">${escapeHtml(
-                  l.loc_num ?? ""
+                  l.loc_num ?? "",
                 )}${priorBtn}</div>
                 <div class="desc" style="font-size:16px; font-weight:800;">${escapeHtml(
-                  l.loc_desc || ""
+                  l.loc_desc || "",
                 )}</div>
 
                 <div class="num" style="font-size:16px; font-weight:800;">${fmtMoney(
-                  l.ext_price_total_current
+                  l.ext_price_total_current,
                 )}</div>
                 <div class="num" style="font-size:16px; font-weight:800;">${fmtMoney(
-                  l.ext_price_total_prior1
+                  l.ext_price_total_prior1,
                 )}</div>
                 <div class="num" style="font-size:16px; font-weight:800;">${fmtMoney(
-                  l.ext_price_total_prior2
+                  l.ext_price_total_prior2,
                 )}</div>
                 <div class="num" style="font-size:16px; font-weight:800;">${fmtMoney(
-                  l.ext_price_total_prior3
+                  l.ext_price_total_prior3,
                 )}</div>
               </div>
 
@@ -2423,7 +2545,7 @@ async function loadAreaGroup(groupId, members) {
           await Promise.all(
             results.map(({ meta }) => {
               const url = `/api/report-exports/${encodeURIComponent(
-                meta.file
+                meta.file,
               )}/reviewed`;
               const body = { reviewed: true, reviewed_at };
 
@@ -2439,7 +2561,7 @@ async function loadAreaGroup(groupId, members) {
                 // If server rejected (non-network) it throws above; queued counts as ok.
                 return r;
               });
-            })
+            }),
           );
 
           markBtn.textContent = "Reviewed ✓";
@@ -2467,7 +2589,7 @@ async function loadArea(file) {
   try {
     const out = await fetchJsonWithCache(
       `/api/report-exports/${encodeURIComponent(file)}`,
-      CACHE_KEYS.FILE(file)
+      CACHE_KEYS.FILE(file),
     );
     data = out.data;
     if (out.fromCache) statusEl.textContent = `Loading… (cached)`;
@@ -2523,7 +2645,7 @@ async function loadArea(file) {
       acc.p3 += Number(l.ext_price_total_prior3 || 0);
       return acc;
     },
-    { c: 0, p1: 0, p2: 0, p3: 0 }
+    { c: 0, p1: 0, p2: 0, p3: 0 },
   );
 
   const rowsHtml = locs
@@ -2534,7 +2656,7 @@ async function loadArea(file) {
       const showPrior = l?.show_prior_loc_desc === true;
       const priorBtn = showPrior
         ? `<button class="prior-desc-btn" type="button" title="Show prior location description" data-prior-target="${id}-prior" data-prior-desc="${escapeHtml(
-            priorDesc || ""
+            priorDesc || "",
           )}">↩</button>`
         : "";
       const priorBlock = showPrior
@@ -2561,23 +2683,23 @@ async function loadArea(file) {
                data-loc-num="${escapeHtml(l.loc_num ?? "")}"
                data-loc-desc="${escapeHtml(l.loc_desc || "")}">
             <div class="mono" style="font-size:16px; font-weight:800;">${escapeHtml(
-              l.loc_num ?? ""
+              l.loc_num ?? "",
             )}<span class="loc-icon-row">${msgBtn}${priorBtn}</span></div>
             <div class="desc" style="font-size:16px; font-weight:800;">${escapeHtml(
-              l.loc_desc || ""
+              l.loc_desc || "",
             )}</div>
 
             <div class="num" style="font-size:16px; font-weight:800;">${fmtMoney(
-              l.ext_price_total_current
+              l.ext_price_total_current,
             )}</div>
             <div class="num" style="font-size:16px; font-weight:800;">${fmtMoney(
-              l.ext_price_total_prior1
+              l.ext_price_total_prior1,
             )}</div>
             <div class="num" style="font-size:16px; font-weight:800;">${fmtMoney(
-              l.ext_price_total_prior2
+              l.ext_price_total_prior2,
             )}</div>
             <div class="num" style="font-size:16px; font-weight:800;">${fmtMoney(
-              l.ext_price_total_prior3
+              l.ext_price_total_prior3,
             )}</div>
           </div>
 
@@ -2646,7 +2768,7 @@ async function loadArea(file) {
                 });
                 patchCachedListReviewedFlag(file, true, reviewed_at);
               },
-            }
+            },
           );
 
           markBtn.textContent = "Reviewed ✓";

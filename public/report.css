@@ -136,7 +136,9 @@ h1 {
 .btn:focus-visible,
 .tab:focus-visible,
 .prior-desc-btn:focus-visible {
-  box-shadow: 0 0 0 4px rgba(153, 0, 0, 0.18), var(--shadow-sm);
+  box-shadow:
+    0 0 0 4px rgba(153, 0, 0, 0.18),
+    var(--shadow-sm);
 }
 
 .btn:active {
@@ -773,4 +775,24 @@ body.admin-mode #admin-badge {
 
 .chat-msg.chat-them .chat-bubble {
   border-top-left-radius: 6px;
+}
+
+/* Notification dot (unread chat / unanswered new replies) */
+.tab.has-notif,
+.btn.has-notif {
+  position: relative;
+}
+
+.tab.has-notif::after,
+.btn.has-notif::after {
+  content: "";
+  position: absolute;
+  top: -4px;
+  right: 8px;
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  background: #e11d48; /* red/pink */
+  border: 2px solid rgba(255, 255, 255, 0.95);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
 }
