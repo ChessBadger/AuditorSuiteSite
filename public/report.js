@@ -823,6 +823,12 @@ function fmtMoney(v) {
   });
 }
 
+function fmtNum(v) {
+  if (v === null || v === undefined || v === "") return "0";
+  const n = Number(v);
+  return Number.isNaN(n) ? String(v) : String(n);
+}
+
 function escapeHtml(str) {
   return String(str)
     .replaceAll("&", "&amp;")
@@ -866,7 +872,7 @@ function getExportGrouping(data) {
   };
 }
 
-function renderBreakdown(bd) {
+function renderBreakdown(bd, reportType) {
   if (!bd || typeof bd !== "object") {
     return `<div class="muted">No breakdown available.</div>`;
   }
@@ -874,6 +880,34 @@ function renderBreakdown(bd) {
   const mode = bd.mode || "";
   const groups = Array.isArray(bd.groups) ? bd.groups : [];
   const categories = Array.isArray(bd.categories) ? bd.categories : [];
+  const isScanReport = reportType === "scan_report";
+
+  // Helper to generate the right columns based on type
+  const renderCols = (item) => {
+    if (isScanReport) {
+      return `
+        <div class="num">${fmtMoney(item.ext_price_total_current)}</div>
+        <div class="num">${fmtMoney(item.ext_price_total_prior1)}</div>
+        <div class="num">${fmtMoney(item.price_variance)}</div>
+        <div class="num">${fmtNum(item.ext_qty_total_current)}</div>
+        <div class="num">${fmtNum(item.ext_qty_total_prior1)}</div>
+        <div class="num">${fmtNum(item.pieces_variance)}</div>
+        <div class="num">${fmtNum(item.unique_sku)}</div>
+      `;
+    } else {
+      // Standard 4-column
+      return `
+        <div class="num">${fmtMoney(item.ext_price_total_current)}</div>
+        <div class="num">${fmtMoney(item.ext_price_total_prior1)}</div>
+        <div class="num">${fmtMoney(item.ext_price_total_prior2)}</div>
+        <div class="num">${fmtMoney(item.ext_price_total_prior3)}</div>
+      `;
+    }
+  };
+
+  const gridStyle = isScanReport
+    ? 'style="padding:2px 6px; grid-template-columns: var(--w-loc) minmax(0, 1fr) repeat(7, 85px);"'
+    : 'style="padding:2px 6px;"';
 
   if (mode === "category_groups") {
     if (groups.length === 0)
@@ -882,7 +916,7 @@ function renderBreakdown(bd) {
     return groups
       .map(
         (g) => `
-  <div class="report-grid report-sub" style="padding:2px 6px;">
+  <div class="report-grid report-sub" ${gridStyle}>
     <div></div>
     <div class="desc">
       <span class="catcell">
@@ -890,11 +924,7 @@ function renderBreakdown(bd) {
         <span class="catdesc">${escapeHtml(g.group_desc ?? "")}</span>
       </span>
     </div>
-
-    <div class="num">${fmtMoney(g.ext_price_total_current)}</div>
-    <div class="num">${fmtMoney(g.ext_price_total_prior1)}</div>
-    <div class="num">${fmtMoney(g.ext_price_total_prior2)}</div>
-    <div class="num">${fmtMoney(g.ext_price_total_prior3)}</div>
+    ${renderCols(g)}
   </div>
 `,
       )
@@ -908,7 +938,7 @@ function renderBreakdown(bd) {
     return categories
       .map(
         (c) => `
-  <div class="report-grid report-sub" style="padding:2px 6px;">
+  <div class="report-grid report-sub" ${gridStyle}>
     <div></div>
     <div class="desc">
       <span class="catcell">
@@ -916,30 +946,22 @@ function renderBreakdown(bd) {
         <span class="catdesc">${escapeHtml(c.cat_desc ?? "")}</span>
       </span>
     </div>
-
-    <div class="num">${fmtMoney(c.ext_price_total_current)}</div>
-    <div class="num">${fmtMoney(c.ext_price_total_prior1)}</div>
-    <div class="num">${fmtMoney(c.ext_price_total_prior2)}</div>
-    <div class="num">${fmtMoney(c.ext_price_total_prior3)}</div>
+    ${renderCols(c)}
   </div>
 `,
       )
       .join("");
   }
 
-  // Best-effort fallback
+  // Best-effort fallback (default to standard columns if ambiguous)
   if (groups.length > 0) {
     return groups
       .map(
         (g) => `
-        <div class="report-grid report-sub" style="padding:2px 6px;">
+        <div class="report-grid report-sub" ${gridStyle}>
           <div class="mono">${escapeHtml(g.cat_group_num ?? "")}</div>
           <div class="desc">${escapeHtml(g.group_desc ?? "")}</div>
-
-          <div class="num">${fmtMoney(g.ext_price_total_current)}</div>
-          <div class="num">${fmtMoney(g.ext_price_total_prior1)}</div>
-          <div class="num">${fmtMoney(g.ext_price_total_prior2)}</div>
-          <div class="num">${fmtMoney(g.ext_price_total_prior3)}</div>
+          ${renderCols(g)}
         </div>
       `,
       )
@@ -950,14 +972,10 @@ function renderBreakdown(bd) {
     return categories
       .map(
         (c) => `
-        <div class="report-grid report-sub" style="padding:2px 6px;">
+        <div class="report-grid report-sub" ${gridStyle}>
           <div class="mono">${escapeHtml(c.cat_num ?? "")}</div>
           <div class="desc">${escapeHtml(c.cat_desc ?? "")}</div>
-
-          <div class="num">${fmtMoney(c.ext_price_total_current)}</div>
-          <div class="num">${fmtMoney(c.ext_price_total_prior1)}</div>
-          <div class="num">${fmtMoney(c.ext_price_total_prior2)}</div>
-          <div class="num">${fmtMoney(c.ext_price_total_prior3)}</div>
+          ${renderCols(c)}
         </div>
       `,
       )
@@ -2445,6 +2463,7 @@ async function loadAreaGroup(groupId, members) {
 
   const first = results[0]?.data || {};
   const dates = first.dates || {};
+  const isScanReport = first.report_type === "scan_report";
 
   function fmtDateLabel(iso, fallback) {
     if (!iso) return fallback;
@@ -2452,18 +2471,37 @@ async function loadAreaGroup(groupId, members) {
     return d.toLocaleDateString(undefined, { timeZone: "UTC" });
   }
 
-  const col1 = fmtDateLabel(dates.current, "Current");
-  const col2 = fmtDateLabel(dates.prior1, "Prior 1");
-  const col3 = fmtDateLabel(dates.prior2, "Prior 2");
-  const col4 = fmtDateLabel(dates.prior3, "Prior 3");
+  let headerColumns, groupGrand;
 
-  const headerHtml = `
-    <div class="report-header">
-      <div class="row" style="margin-bottom:10px;">
-        <button id="back-to-areas" class="btn" type="button">← Areas</button>
-        <button id="mark-reviewed" class="btn btn-primary" type="button">Mark Reviewed</button>
+  if (isScanReport) {
+    const col1 = fmtDateLabel(dates.current, "Current");
+    const col2 = fmtDateLabel(dates.prior1, "Prior 1");
+
+    const gridStyle =
+      'style="grid-template-columns: var(--w-loc) minmax(0, 1fr) repeat(7, 85px);"';
+
+    headerColumns = `
+      <div class="report-grid" ${gridStyle} style="font-weight:700; font-size:17px;">
+        <div style="grid-column: 1 / span 2;"></div>
+        <div class="num">${col1}</div>
+        <div class="num">${col2}</div>
+        <div class="num">+/-</div>
+        <div class="num">Pieces</div>
+        <div class="num">Prior</div>
+        <div class="num">+/-</div>
+        <div class="num">SKUs</div>
       </div>
+    `;
 
+    groupGrand = { c: 0, p1: 0, v: 0, qc: 0, qp1: 0, qv: 0, sku: 0 };
+  } else {
+    // Standard 4 col
+    const col1 = fmtDateLabel(dates.current, "Current");
+    const col2 = fmtDateLabel(dates.prior1, "Prior 1");
+    const col3 = fmtDateLabel(dates.prior2, "Prior 2");
+    const col4 = fmtDateLabel(dates.prior3, "Prior 3");
+
+    headerColumns = `
       <div class="report-grid" style="font-weight:700; font-size:19px;">
         <div style="grid-column: 1 / span 2;"></div>
         <div class="num">${col1}</div>
@@ -2471,10 +2509,20 @@ async function loadAreaGroup(groupId, members) {
         <div class="num">${col3}</div>
         <div class="num">${col4}</div>
       </div>
+    `;
+
+    groupGrand = { c: 0, p1: 0, p2: 0, p3: 0 };
+  }
+
+  const headerHtml = `
+    <div class="report-header">
+      <div class="row" style="margin-bottom:10px;">
+        <button id="back-to-areas" class="btn" type="button">← Areas</button>
+        <button id="mark-reviewed" class="btn btn-primary" type="button">Mark Reviewed</button>
+      </div>
+      ${headerColumns}
     </div>
   `;
-
-  let groupGrand = { c: 0, p1: 0, p2: 0, p3: 0 };
 
   const sectionsHtml = results
     .sort((a, b) =>
@@ -2485,48 +2533,146 @@ async function loadAreaGroup(groupId, members) {
     .map(({ meta, data }) => {
       const locs = Array.isArray(data.locations) ? data.locations : [];
 
-      const areaGrand = locs.reduce(
-        (acc, l) => {
-          acc.c += Number(l.ext_price_total_current || 0);
-          acc.p1 += Number(l.ext_price_total_prior1 || 0);
-          acc.p2 += Number(l.ext_price_total_prior2 || 0);
-          acc.p3 += Number(l.ext_price_total_prior3 || 0);
-          return acc;
-        },
-        { c: 0, p1: 0, p2: 0, p3: 0 },
-      );
+      let areaGrand;
+      let areaFooter;
+      let rowsHtml;
 
-      groupGrand.c += areaGrand.c;
-      groupGrand.p1 += areaGrand.p1;
-      groupGrand.p2 += areaGrand.p2;
-      groupGrand.p3 += areaGrand.p3;
+      if (isScanReport) {
+        const gridStyle =
+          'style="grid-template-columns: var(--w-loc) minmax(0, 1fr) repeat(7, 85px);"';
 
-      const areaTitle = `
-        <div class="report-grid" style="padding:10px 6px; font-weight:800;">
-          <div style="grid-column: 1 / span 6; font-size:18px;">
-            AREA <span class="mono">${escapeHtml(data.area_num ?? "")}</span>
-            &nbsp;&nbsp; ${escapeHtml(data.area_desc || "")}
-          </div>
+        areaGrand = locs.reduce(
+          (acc, l) => {
+            acc.c += Number(l.ext_price_total_current || 0);
+            acc.p1 += Number(l.ext_price_total_prior1 || 0);
+            acc.v += Number(l.price_variance || 0);
+            acc.qc += Number(l.ext_qty_total_current || 0);
+            acc.qp1 += Number(l.ext_qty_total_prior1 || 0);
+            acc.qv += Number(l.pieces_variance || 0);
+            acc.sku += Number(l.unique_sku || 0);
+            return acc;
+          },
+          { c: 0, p1: 0, v: 0, qc: 0, qp1: 0, qv: 0, sku: 0 },
+        );
+
+        groupGrand.c += areaGrand.c;
+        groupGrand.p1 += areaGrand.p1;
+        groupGrand.v += areaGrand.v;
+        groupGrand.qc += areaGrand.qc;
+        groupGrand.qp1 += areaGrand.qp1;
+        groupGrand.qv += areaGrand.qv;
+        groupGrand.sku += areaGrand.sku;
+
+        rowsHtml = locs
+          .map((l, idx) => {
+            const id = `g-${escapeHtml(data.area_num ?? "area")}-loc-${idx}`;
+            const priorDesc = getPriorLocDesc(l);
+            const showPrior = l?.show_prior_loc_desc === true;
+            const priorBtn = showPrior
+              ? `<button class="prior-desc-btn" type="button" title="Show prior location description" data-prior-target="${id}-prior" data-prior-desc="${escapeHtml(
+                  priorDesc || "",
+                )}">↩</button>`
+              : "";
+            const priorBlock = showPrior
+              ? `<div id="${id}-prior" class="prior-desc" style="display:none;"></div>`
+              : "";
+
+            return `
+            <div class="report-block">
+              <div class="report-row report-grid report-main" ${gridStyle}
+                   data-target="${id}"
+                   data-file="${escapeHtml(meta.file)}"
+                   data-area-num="${escapeHtml(data.area_num ?? "")}"
+                   data-area-desc="${escapeHtml(data.area_desc || "")}"
+                   data-loc-num="${escapeHtml(l.loc_num ?? "")}"
+                   data-loc-desc="${escapeHtml(l.loc_desc || "")}">
+                <div class="mono" style="font-size:16px; font-weight:800;">${escapeHtml(
+                  l.loc_num ?? "",
+                )}${priorBtn}</div>
+                <div class="desc" style="font-size:16px; font-weight:800;">${escapeHtml(
+                  l.loc_desc || "",
+                )}</div>
+
+                <div class="num" style="font-size:16px; font-weight:800;">${fmtMoney(
+                  l.ext_price_total_current,
+                )}</div>
+                <div class="num" style="font-size:16px; font-weight:800;">${fmtMoney(
+                  l.ext_price_total_prior1,
+                )}</div>
+                <div class="num" style="font-size:16px; font-weight:800;">${fmtMoney(
+                  l.price_variance,
+                )}</div>
+                <div class="num" style="font-size:16px; font-weight:800;">${fmtNum(
+                  l.ext_qty_total_current,
+                )}</div>
+                <div class="num" style="font-size:16px; font-weight:800;">${fmtNum(
+                  l.ext_qty_total_prior1,
+                )}</div>
+                <div class="num" style="font-size:16px; font-weight:800;">${fmtNum(
+                  l.pieces_variance,
+                )}</div>
+                <div class="num" style="font-size:16px; font-weight:800;">${fmtNum(
+                  l.unique_sku,
+                )}</div>
+              </div>
+
+              <div id="${id}" class="report-indent" style="display:block;">
+                ${priorBlock}${renderBreakdown(
+                  l.report_breakdown,
+                  "scan_report",
+                )}
+              </div>
+            </div>
+          `;
+          })
+          .join("");
+
+        areaFooter = `
+        <div style="border-top:1px solid #bbb; margin-top:6px;"></div>
+        <div class="report-grid" ${gridStyle} style="padding:8px 6px; font-weight:800; font-size:16px;">
+          <div style="grid-column: 1 / span 2;">AREA TOTAL</div>
+          <div class="num">${fmtMoney(areaGrand.c)}</div>
+          <div class="num">${fmtMoney(areaGrand.p1)}</div>
+          <div class="num">${fmtMoney(areaGrand.v)}</div>
+          <div class="num">${fmtNum(areaGrand.qc)}</div>
+          <div class="num">${fmtNum(areaGrand.qp1)}</div>
+          <div class="num">${fmtNum(areaGrand.qv)}</div>
+          <div class="num">${fmtNum(areaGrand.sku)}</div>
         </div>
-        <div style="border-bottom:1px solid #bbb;"></div>
       `;
+      } else {
+        // Standard 4 col logic
+        areaGrand = locs.reduce(
+          (acc, l) => {
+            acc.c += Number(l.ext_price_total_current || 0);
+            acc.p1 += Number(l.ext_price_total_prior1 || 0);
+            acc.p2 += Number(l.ext_price_total_prior2 || 0);
+            acc.p3 += Number(l.ext_price_total_prior3 || 0);
+            return acc;
+          },
+          { c: 0, p1: 0, p2: 0, p3: 0 },
+        );
 
-      const rowsHtml = locs
-        .map((l, idx) => {
-          const id = `g-${escapeHtml(data.area_num ?? "area")}-loc-${idx}`;
+        groupGrand.c += areaGrand.c;
+        groupGrand.p1 += areaGrand.p1;
+        groupGrand.p2 += areaGrand.p2;
+        groupGrand.p3 += areaGrand.p3;
 
-          const priorDesc = getPriorLocDesc(l);
-          const showPrior = l?.show_prior_loc_desc === true;
-          const priorBtn = showPrior
-            ? `<button class="prior-desc-btn" type="button" title="Show prior location description" data-prior-target="${id}-prior" data-prior-desc="${escapeHtml(
-                priorDesc || "",
-              )}">↩</button>`
-            : "";
-          const priorBlock = showPrior
-            ? `<div id="${id}-prior" class="prior-desc" style="display:none;"></div>`
-            : "";
+        rowsHtml = locs
+          .map((l, idx) => {
+            const id = `g-${escapeHtml(data.area_num ?? "area")}-loc-${idx}`;
+            const priorDesc = getPriorLocDesc(l);
+            const showPrior = l?.show_prior_loc_desc === true;
+            const priorBtn = showPrior
+              ? `<button class="prior-desc-btn" type="button" title="Show prior location description" data-prior-target="${id}-prior" data-prior-desc="${escapeHtml(
+                  priorDesc || "",
+                )}">↩</button>`
+              : "";
+            const priorBlock = showPrior
+              ? `<div id="${id}-prior" class="prior-desc" style="display:none;"></div>`
+              : "";
 
-          return `
+            return `
             <div class="report-block">
               <div class="report-row report-grid report-main"
                    data-target="${id}"
@@ -2561,10 +2707,10 @@ async function loadAreaGroup(groupId, members) {
               </div>
             </div>
           `;
-        })
-        .join("");
+          })
+          .join("");
 
-      const areaFooter = `
+        areaFooter = `
         <div style="border-top:1px solid #bbb; margin-top:6px;"></div>
         <div class="report-grid" style="padding:8px 6px; font-weight:800; font-size:16px;">
           <div style="grid-column: 1 / span 2;">AREA TOTAL</div>
@@ -2573,6 +2719,17 @@ async function loadAreaGroup(groupId, members) {
           <div class="num">${fmtMoney(areaGrand.p2)}</div>
           <div class="num">${fmtMoney(areaGrand.p3)}</div>
         </div>
+      `;
+      }
+
+      const areaTitle = `
+        <div class="report-grid" style="padding:10px 6px; font-weight:800;">
+          <div style="grid-column: 1 / span 6; font-size:18px;">
+            AREA <span class="mono">${escapeHtml(data.area_num ?? "")}</span>
+            &nbsp;&nbsp; ${escapeHtml(data.area_desc || "")}
+          </div>
+        </div>
+        <div style="border-bottom:1px solid #bbb;"></div>
       `;
 
       return `
@@ -2585,7 +2742,26 @@ async function loadAreaGroup(groupId, members) {
     })
     .join("");
 
-  const footerHtml = `
+  let footerHtml;
+  if (isScanReport) {
+    const gridStyle =
+      'style="grid-template-columns: var(--w-loc) minmax(0, 1fr) repeat(7, 85px);"';
+    footerHtml = `
+    <div class="report-footer">
+      <div class="report-grid" ${gridStyle} style="font-size:16px;">
+        <div style="grid-column: 1 / span 2; font-size:16px;">GROUP GRAND TOTAL</div>
+        <div class="num">${fmtMoney(groupGrand.c)}</div>
+        <div class="num">${fmtMoney(groupGrand.p1)}</div>
+        <div class="num">${fmtMoney(groupGrand.v)}</div>
+        <div class="num">${fmtNum(groupGrand.qc)}</div>
+        <div class="num">${fmtNum(groupGrand.qp1)}</div>
+        <div class="num">${fmtNum(groupGrand.qv)}</div>
+        <div class="num">${fmtNum(groupGrand.sku)}</div>
+      </div>
+    </div>
+  `;
+  } else {
+    footerHtml = `
     <div class="report-footer">
       <div class="report-grid" style="font-size:16px;">
         <div style="grid-column: 1 / span 2; font-size:16px;">GROUP GRAND TOTAL</div>
@@ -2596,6 +2772,7 @@ async function loadAreaGroup(groupId, members) {
       </div>
     </div>
   `;
+  }
 
   content.innerHTML = headerHtml + `<div>${sectionsHtml}</div>` + footerHtml;
 
@@ -2688,6 +2865,7 @@ async function loadArea(file) {
   }
 
   const locs = Array.isArray(data.locations) ? data.locations : [];
+  const isScanReport = data.report_type === "scan_report";
 
   // report view: fullscreen
   setSplitMode("fullscreen");
@@ -2700,69 +2878,174 @@ async function loadArea(file) {
   }
 
   const dates = data.dates || {};
-  const col1 = fmtDateLabel(dates.current, "Current");
-  const col2 = fmtDateLabel(dates.prior1, "Prior 1");
-  const col3 = fmtDateLabel(dates.prior2, "Prior 2");
-  const col4 = fmtDateLabel(dates.prior3, "Prior 3");
+  let headerColumns, grand, rowsHtml;
 
-  const headerHtml = `
-    <div class="report-header">
-      <div class="row" style="margin-bottom:10px;">
-        <button id="back-to-areas" class="btn" type="button">← Areas</button>
-        <button id="mark-reviewed" class="btn btn-primary" type="button">Mark Reviewed</button>
-      </div>
+  if (isScanReport) {
+    // 7 Columns for Scan Report
+    const col1 = fmtDateLabel(dates.current, "Current");
+    const col2 = fmtDateLabel(dates.prior1, "Prior 1");
 
-      <div class="report-grid" style="font-weight:700; font-size:19px;">
+    // Override the grid template for this specific view
+    const gridStyle =
+      'style="grid-template-columns: var(--w-loc) minmax(0, 1fr) repeat(7, 85px);"';
+
+    headerColumns = `
+      <div class="report-grid" ${gridStyle} style="font-weight:700; font-size:17px;">
         <div style="grid-column: 1 / span 2; font-size:22px;">
           AREA <span class="mono">${escapeHtml(data.area_num ?? "")}</span>
           &nbsp;&nbsp; ${escapeHtml(data.area_desc || "")}
         </div>
-
         <div class="num">${col1}</div>
         <div class="num">${col2}</div>
-        <div class="num">${col3}</div>
-        <div class="num">${col4}</div>
+        <div class="num">+/-</div>
+        <div class="num">Pieces</div>
+        <div class="num">Prior</div>
+        <div class="num">+/-</div>
+        <div class="num">SKUs</div>
       </div>
-    </div>
-  `;
+    `;
 
-  const grand = locs.reduce(
-    (acc, l) => {
-      acc.c += Number(l.ext_price_total_current || 0);
-      acc.p1 += Number(l.ext_price_total_prior1 || 0);
-      acc.p2 += Number(l.ext_price_total_prior2 || 0);
-      acc.p3 += Number(l.ext_price_total_prior3 || 0);
-      return acc;
-    },
-    { c: 0, p1: 0, p2: 0, p3: 0 },
-  );
+    // Calculate totals for all 7 columns
+    grand = locs.reduce(
+      (acc, l) => {
+        acc.c += Number(l.ext_price_total_current || 0);
+        acc.p1 += Number(l.ext_price_total_prior1 || 0);
+        acc.v += Number(l.price_variance || 0);
+        acc.qc += Number(l.ext_qty_total_current || 0);
+        acc.qp1 += Number(l.ext_qty_total_prior1 || 0);
+        acc.qv += Number(l.pieces_variance || 0);
+        acc.sku += Number(l.unique_sku || 0);
+        return acc;
+      },
+      { c: 0, p1: 0, v: 0, qc: 0, qp1: 0, qv: 0, sku: 0 },
+    );
 
-  const rowsHtml = locs
-    .map((l, idx) => {
-      const id = `loc-${idx}`;
+    rowsHtml = locs
+      .map((l, idx) => {
+        const id = `loc-${idx}`;
+        const priorDesc = getPriorLocDesc(l);
+        const showPrior = l?.show_prior_loc_desc === true;
+        const priorBtn = showPrior
+          ? `<button class="prior-desc-btn" type="button" title="Show prior location description" data-prior-target="${id}-prior" data-prior-desc="${escapeHtml(
+              priorDesc || "",
+            )}">↩</button>`
+          : "";
+        const priorBlock = showPrior
+          ? `<div id="${id}-prior" class="prior-desc" style="display:none;"></div>`
+          : "";
 
-      const priorDesc = getPriorLocDesc(l);
-      const showPrior = l?.show_prior_loc_desc === true;
-      const priorBtn = showPrior
-        ? `<button class="prior-desc-btn" type="button" title="Show prior location description" data-prior-target="${id}-prior" data-prior-desc="${escapeHtml(
-            priorDesc || "",
-          )}">↩</button>`
-        : "";
-      const priorBlock = showPrior
-        ? `<div id="${id}-prior" class="prior-desc" style="display:none;"></div>`
-        : "";
-
-      const locMsg = getLocationMessage(l);
-      const msgBtn = locMsg
-        ? `<button class="loc-msg-btn" type="button" title="View location message"
+        const locMsg = getLocationMessage(l);
+        const msgBtn = locMsg
+          ? `<button class="loc-msg-btn" type="button" title="View location message"
               data-msg="${escapeHtml(locMsg)}"
               data-area-num="${escapeHtml(data.area_num ?? "")}"
               data-area-desc="${escapeHtml(data.area_desc || "")}"
               data-loc-num="${escapeHtml(l.loc_num ?? "")}"
               data-loc-desc="${escapeHtml(l.loc_desc || "")}">📝</button>`
-        : "";
+          : "";
 
-      return `
+        return `
+        <div class="report-block">
+          <div class="report-row report-grid report-main" ${gridStyle}
+               data-target="${id}"
+               data-file="${escapeHtml(file)}"
+               data-area-num="${escapeHtml(data.area_num ?? "")}"
+               data-area-desc="${escapeHtml(data.area_desc || "")}"
+               data-loc-num="${escapeHtml(l.loc_num ?? "")}"
+               data-loc-desc="${escapeHtml(l.loc_desc || "")}">
+            <div class="mono" style="font-size:16px; font-weight:800;">${escapeHtml(
+              l.loc_num ?? "",
+            )}<span class="loc-icon-row">${msgBtn}${priorBtn}</span></div>
+            <div class="desc" style="font-size:16px; font-weight:800;">${escapeHtml(
+              l.loc_desc || "",
+            )}</div>
+
+            <div class="num" style="font-size:16px; font-weight:800;">${fmtMoney(
+              l.ext_price_total_current,
+            )}</div>
+            <div class="num" style="font-size:16px; font-weight:800;">${fmtMoney(
+              l.ext_price_total_prior1,
+            )}</div>
+            <div class="num" style="font-size:16px; font-weight:800;">${fmtMoney(
+              l.price_variance,
+            )}</div>
+            <div class="num" style="font-size:16px; font-weight:800;">${fmtNum(
+              l.ext_qty_total_current,
+            )}</div>
+            <div class="num" style="font-size:16px; font-weight:800;">${fmtNum(
+              l.ext_qty_total_prior1,
+            )}</div>
+            <div class="num" style="font-size:16px; font-weight:800;">${fmtNum(
+              l.pieces_variance,
+            )}</div>
+            <div class="num" style="font-size:16px; font-weight:800;">${fmtNum(
+              l.unique_sku,
+            )}</div>
+          </div>
+
+          <div id="${id}" class="report-indent" style="display:block;">
+            ${priorBlock}${renderBreakdown(l.report_breakdown, "scan_report")}
+          </div>
+        </div>
+      `;
+      })
+      .join("");
+  } else {
+    // Standard 4 Column Layout
+    const col1 = fmtDateLabel(dates.current, "Current");
+    const col2 = fmtDateLabel(dates.prior1, "Prior 1");
+    const col3 = fmtDateLabel(dates.prior2, "Prior 2");
+    const col4 = fmtDateLabel(dates.prior3, "Prior 3");
+
+    headerColumns = `
+      <div class="report-grid" style="font-weight:700; font-size:19px;">
+        <div style="grid-column: 1 / span 2; font-size:22px;">
+          AREA <span class="mono">${escapeHtml(data.area_num ?? "")}</span>
+          &nbsp;&nbsp; ${escapeHtml(data.area_desc || "")}
+        </div>
+        <div class="num">${col1}</div>
+        <div class="num">${col2}</div>
+        <div class="num">${col3}</div>
+        <div class="num">${col4}</div>
+      </div>
+    `;
+
+    grand = locs.reduce(
+      (acc, l) => {
+        acc.c += Number(l.ext_price_total_current || 0);
+        acc.p1 += Number(l.ext_price_total_prior1 || 0);
+        acc.p2 += Number(l.ext_price_total_prior2 || 0);
+        acc.p3 += Number(l.ext_price_total_prior3 || 0);
+        return acc;
+      },
+      { c: 0, p1: 0, p2: 0, p3: 0 },
+    );
+
+    rowsHtml = locs
+      .map((l, idx) => {
+        const id = `loc-${idx}`;
+        const priorDesc = getPriorLocDesc(l);
+        const showPrior = l?.show_prior_loc_desc === true;
+        const priorBtn = showPrior
+          ? `<button class="prior-desc-btn" type="button" title="Show prior location description" data-prior-target="${id}-prior" data-prior-desc="${escapeHtml(
+              priorDesc || "",
+            )}">↩</button>`
+          : "";
+        const priorBlock = showPrior
+          ? `<div id="${id}-prior" class="prior-desc" style="display:none;"></div>`
+          : "";
+
+        const locMsg = getLocationMessage(l);
+        const msgBtn = locMsg
+          ? `<button class="loc-msg-btn" type="button" title="View location message"
+              data-msg="${escapeHtml(locMsg)}"
+              data-area-num="${escapeHtml(data.area_num ?? "")}"
+              data-area-desc="${escapeHtml(data.area_desc || "")}"
+              data-loc-num="${escapeHtml(l.loc_num ?? "")}"
+              data-loc-desc="${escapeHtml(l.loc_desc || "")}">📝</button>`
+          : "";
+
+        return `
         <div class="report-block">
           <div class="report-row report-grid report-main"
                data-target="${id}"
@@ -2797,20 +3080,51 @@ async function loadArea(file) {
           </div>
         </div>
       `;
-    })
-    .join("");
+      })
+      .join("");
+  }
 
-  const footerHtml = `
-    <div class="report-footer">
-      <div class="report-grid" style="font-size:16px;">
-        <div style="grid-column: 1 / span 2; font-size:16px;">GRAND TOTAL</div>
-        <div class="num">${fmtMoney(grand.c)}</div>
-        <div class="num">${fmtMoney(grand.p1)}</div>
-        <div class="num">${fmtMoney(grand.p2)}</div>
-        <div class="num">${fmtMoney(grand.p3)}</div>
+  const headerHtml = `
+    <div class="report-header">
+      <div class="row" style="margin-bottom:10px;">
+        <button id="back-to-areas" class="btn" type="button">← Areas</button>
+        <button id="mark-reviewed" class="btn btn-primary" type="button">Mark Reviewed</button>
       </div>
+      ${headerColumns}
     </div>
   `;
+
+  let footerHtml;
+  if (isScanReport) {
+    const gridStyle =
+      'style="grid-template-columns: var(--w-loc) minmax(0, 1fr) repeat(7, 85px);"';
+    footerHtml = `
+      <div class="report-footer">
+        <div class="report-grid" ${gridStyle} style="font-size:16px;">
+          <div style="grid-column: 1 / span 2; font-size:16px;">GRAND TOTAL</div>
+          <div class="num">${fmtMoney(grand.c)}</div>
+          <div class="num">${fmtMoney(grand.p1)}</div>
+          <div class="num">${fmtMoney(grand.v)}</div>
+          <div class="num">${fmtNum(grand.qc)}</div>
+          <div class="num">${fmtNum(grand.qp1)}</div>
+          <div class="num">${fmtNum(grand.qv)}</div>
+          <div class="num">${fmtNum(grand.sku)}</div>
+        </div>
+      </div>
+    `;
+  } else {
+    footerHtml = `
+      <div class="report-footer">
+        <div class="report-grid" style="font-size:16px;">
+          <div style="grid-column: 1 / span 2; font-size:16px;">GRAND TOTAL</div>
+          <div class="num">${fmtMoney(grand.c)}</div>
+          <div class="num">${fmtMoney(grand.p1)}</div>
+          <div class="num">${fmtMoney(grand.p2)}</div>
+          <div class="num">${fmtMoney(grand.p3)}</div>
+        </div>
+      </div>
+    `;
+  }
 
   content.innerHTML = headerHtml + `<div>${rowsHtml}</div>` + footerHtml;
 
