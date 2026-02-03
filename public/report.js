@@ -42,23 +42,97 @@ function toMs(ts) {
   return Number.isFinite(n) ? n : 0;
 }
 
+// --------------------
+// "Seen" persistence (localStorage + foolproof in-memory fallback)
+// --------------------
+
+const __seenMem = Object.create(null);
+
+let __storageOk = null;
+let __storageWarned = false;
+
+function storageOk() {
+  if (__storageOk !== null) return __storageOk;
+  try {
+    const k = `${CACHE_NS}:__ls_test__`;
+    localStorage.setItem(k, "1");
+    localStorage.removeItem(k);
+    __storageOk = true;
+  } catch {
+    __storageOk = false;
+  }
+  return __storageOk;
+}
+
 function getSeenMs(key) {
-  const raw = localStorage.getItem(key);
-  const n = raw ? Number(raw) : 0;
-  return Number.isFinite(n) ? n : 0;
+  // Always allow in-memory fallback (works even if storage is blocked)
+  const mem = __seenMem[key];
+  const memN = mem ? Number(mem) : 0;
+  const memMs = Number.isFinite(memN) ? memN : 0;
+
+  if (!storageOk()) return memMs;
+
+  try {
+    const raw = localStorage.getItem(key);
+    const n = raw ? Number(raw) : 0;
+    const lsMs = Number.isFinite(n) ? n : 0;
+    return Math.max(lsMs, memMs);
+  } catch {
+    return memMs;
+  }
 }
 
 function setSeenMs(key, ms) {
+  const v = String(Number(ms) || 0);
+
+  // Always update memory (so behavior is correct even when LS is broken)
+  __seenMem[key] = v;
+
+  if (!storageOk()) {
+    if (!__storageWarned) {
+      __storageWarned = true;
+      console.warn("[SEEN] localStorage unavailable; using in-memory fallback");
+    }
+    return;
+  }
+
   try {
-    localStorage.setItem(key, String(Number(ms) || 0));
-  } catch {
-    // ignore quota errors
+    localStorage.setItem(key, v);
+  } catch (e) {
+    if (!__storageWarned) {
+      __storageWarned = true;
+      console.warn(
+        "[SEEN] localStorage write failed; using in-memory fallback",
+        e,
+      );
+    }
   }
 }
 
 function setNotif(el, on) {
   if (!el) return;
+
+  const before = el.classList.contains("has-notif");
   el.classList.toggle("has-notif", !!on);
+  const after = el.classList.contains("has-notif");
+
+  // Only log when something actually changes
+  if (before !== after) {
+    const id = el.id ? `#${el.id}` : el.tagName;
+    const seenChat = getSeenMs(SEEN_KEYS.CHAT_LAST_SEEN_MS);
+    const seenQ = getSeenMs(SEEN_KEYS.QUESTIONS_REPLY_LAST_SEEN_MS);
+
+    console.log("[NOTIF]", id, "=>", after ? "ON" : "OFF", {
+      onArg: !!on,
+      latestChatMsgMs,
+      seenChat,
+      chatOpen: chatState?.open,
+      latestQuestionsReplyMs,
+      seenQuestionsReplyMs: seenQ,
+      currentTab,
+      stack: new Error().stack,
+    });
+  }
 }
 
 function getChatMessages(chatObj) {
@@ -95,8 +169,15 @@ async function refreshChatNotification() {
   try {
     const out = await fetchJsonWithCache("/api/chatlog", CACHE_KEYS.CHAT);
     latestChatMsgMs = computeLatestChatMs(out.data);
+
+    // If the user is viewing chat, it is "seen" immediately.
+    if (chatState.open) {
+      markChatSeen();
+      return;
+    }
+
     const seen = getSeenMs(SEEN_KEYS.CHAT_LAST_SEEN_MS);
-    setNotif(chatBtn, latestChatMsgMs > seen && !chatState.open);
+    setNotif(chatBtn, latestChatMsgMs > seen);
   } catch {
     // ignore
   }
@@ -2146,7 +2227,14 @@ async function loadAreaList() {
 
   // Update notification state (new replies / new chat)
   latestQuestionsReplyMs = computeLatestQuestionsReplyMs(enriched);
-  refreshQuestionsNotification();
+
+  // If the user is on the Questions tab, those replies are now "seen".
+  if (currentTab === TABS.QUESTIONS) {
+    markQuestionsRepliesSeen();
+  } else {
+    refreshQuestionsNotification();
+  }
+
   refreshChatNotification();
 
   // group_id -> members[]
@@ -2254,9 +2342,10 @@ async function loadAreaList() {
         await loadArea(q.file);
         jumpToLocationInView(q.loc_num);
       });
-      markQuestionsRepliesSeen();
       areaList.appendChild(li);
     }
+    markQuestionsRepliesSeen();
+
     return;
   }
 
