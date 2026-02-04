@@ -223,15 +223,16 @@ h1 {
 }
 
 :root {
-  --w-loc: 50px; /* location number column */
-  --w-num: 110px; /* numeric columns */
-  --gap: 16px;
+  /* No location column */
+  --w-num: 95px; /* numeric columns - slightly smaller to fit tablets */
+  --gap: 12px;
 }
 
 /* One grid template used everywhere so columns ALWAYS align */
 .report-grid {
   display: grid;
-  grid-template-columns: var(--w-loc) minmax(0, 1fr) repeat(4, var(--w-num));
+  /* Removed location column, just Desc + Numbers */
+  grid-template-columns: minmax(0, 1fr) repeat(4, var(--w-num));
   column-gap: var(--gap);
   align-items: baseline;
   width: 100%;
@@ -241,6 +242,7 @@ h1 {
 .report-grid .num {
   text-align: right;
   font-variant-numeric: tabular-nums; /* fixed-width digits */
+  font-size: 14px;
 }
 
 .report-grid .desc {
@@ -248,6 +250,7 @@ h1 {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap; /* keeps it “report-like” and prevents horizontal scroll */
+  font-size: 14px !important;
 }
 
 main.panel {
@@ -315,7 +318,7 @@ main.panel {
 
 /* Category / group rows */
 .report-sub {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 400;
   color: #222;
 }
@@ -326,7 +329,7 @@ main.panel {
 
 /* Location rows */
 .report-main {
-  font-size: 22px;
+  font-size: 17px; /* Reduced from 22px to fit better */
   font-weight: 800;
 }
 
@@ -341,16 +344,6 @@ main.panel {
   margin-top: 12px;
   padding-top: 10px;
 }
-
-/* Category / group rows: VERY tight cat number column */
-/* .report-grid-sub {
-  display: grid;
-  grid-template-columns: 34px minmax(0, 1fr) repeat(4, var(--w-num));
-  column-gap: 8px;
-  align-items: baseline;
-  width: 100%;
-  min-width: 0;
-} */
 
 /* Pack cat num + desc tightly while keeping the SAME report-grid columns */
 .catcell {

@@ -906,7 +906,7 @@ function renderBreakdown(bd, reportType) {
   };
 
   const gridStyle = isScanReport
-    ? 'style="padding:2px 6px; grid-template-columns: var(--w-loc) minmax(0, 1fr) repeat(7, 85px);"'
+    ? 'style="padding:2px 6px; grid-template-columns: minmax(0, 1fr) repeat(7, 70px);"'
     : 'style="padding:2px 6px;"';
 
   if (mode === "category_groups") {
@@ -917,7 +917,6 @@ function renderBreakdown(bd, reportType) {
       .map(
         (g) => `
   <div class="report-grid report-sub" ${gridStyle}>
-    <div></div>
     <div class="desc">
       <span class="catcell">
         <span class="mono catnum">${escapeHtml(g.cat_group_num ?? "")}</span>
@@ -939,7 +938,6 @@ function renderBreakdown(bd, reportType) {
       .map(
         (c) => `
   <div class="report-grid report-sub" ${gridStyle}>
-    <div></div>
     <div class="desc">
       <span class="catcell">
         <span class="mono catnum">${escapeHtml(c.cat_num ?? "")}</span>
@@ -959,7 +957,6 @@ function renderBreakdown(bd, reportType) {
       .map(
         (g) => `
         <div class="report-grid report-sub" ${gridStyle}>
-          <div class="mono">${escapeHtml(g.cat_group_num ?? "")}</div>
           <div class="desc">${escapeHtml(g.group_desc ?? "")}</div>
           ${renderCols(g)}
         </div>
@@ -973,7 +970,6 @@ function renderBreakdown(bd, reportType) {
       .map(
         (c) => `
         <div class="report-grid report-sub" ${gridStyle}>
-          <div class="mono">${escapeHtml(c.cat_num ?? "")}</div>
           <div class="desc">${escapeHtml(c.cat_desc ?? "")}</div>
           ${renderCols(c)}
         </div>
@@ -2477,12 +2473,13 @@ async function loadAreaGroup(groupId, members) {
     const col1 = fmtDateLabel(dates.current, "Current");
     const col2 = fmtDateLabel(dates.prior1, "Prior 1");
 
+    // Reduced column width to 70px to avoid horizontal scroll on tablets
     const gridStyle =
-      'style="grid-template-columns: var(--w-loc) minmax(0, 1fr) repeat(7, 85px);"';
+      'style="grid-template-columns: minmax(0, 1fr) repeat(7, 70px);"';
 
     headerColumns = `
       <div class="report-grid" ${gridStyle} style="font-weight:700; font-size:17px;">
-        <div style="grid-column: 1 / span 2;"></div>
+        <div style="grid-column: 1 / span 1;"></div>
         <div class="num">${col1}</div>
         <div class="num">${col2}</div>
         <div class="num">+/-</div>
@@ -2502,8 +2499,8 @@ async function loadAreaGroup(groupId, members) {
     const col4 = fmtDateLabel(dates.prior3, "Prior 3");
 
     headerColumns = `
-      <div class="report-grid" style="font-weight:700; font-size:19px;">
-        <div style="grid-column: 1 / span 2;"></div>
+      <div class="report-grid" style="font-weight:700; font-size:17px;">
+        <div style="grid-column: 1 / span 1;"></div>
         <div class="num">${col1}</div>
         <div class="num">${col2}</div>
         <div class="num">${col3}</div>
@@ -2539,7 +2536,7 @@ async function loadAreaGroup(groupId, members) {
 
       if (isScanReport) {
         const gridStyle =
-          'style="grid-template-columns: var(--w-loc) minmax(0, 1fr) repeat(7, 85px);"';
+          'style="grid-template-columns: minmax(0, 1fr) repeat(7, 70px);"';
 
         areaGrand = locs.reduce(
           (acc, l) => {
@@ -2586,34 +2583,16 @@ async function loadAreaGroup(groupId, members) {
                    data-area-desc="${escapeHtml(data.area_desc || "")}"
                    data-loc-num="${escapeHtml(l.loc_num ?? "")}"
                    data-loc-desc="${escapeHtml(l.loc_desc || "")}">
-                <div class="mono" style="font-size:16px; font-weight:800;">${escapeHtml(
-                  l.loc_num ?? "",
-                )}${priorBtn}</div>
-                <div class="desc" style="font-size:16px; font-weight:800;">${escapeHtml(
-                  l.loc_desc || "",
-                )}</div>
+                
+                <div class="desc">${escapeHtml(l.loc_desc || "")}${priorBtn}</div>
 
-                <div class="num" style="font-size:16px; font-weight:800;">${fmtMoney(
-                  l.ext_price_total_current,
-                )}</div>
-                <div class="num" style="font-size:16px; font-weight:800;">${fmtMoney(
-                  l.ext_price_total_prior1,
-                )}</div>
-                <div class="num" style="font-size:16px; font-weight:800;">${fmtMoney(
-                  l.price_variance,
-                )}</div>
-                <div class="num" style="font-size:16px; font-weight:800;">${fmtNum(
-                  l.ext_qty_total_current,
-                )}</div>
-                <div class="num" style="font-size:16px; font-weight:800;">${fmtNum(
-                  l.ext_qty_total_prior1,
-                )}</div>
-                <div class="num" style="font-size:16px; font-weight:800;">${fmtNum(
-                  l.pieces_variance,
-                )}</div>
-                <div class="num" style="font-size:16px; font-weight:800;">${fmtNum(
-                  l.unique_sku,
-                )}</div>
+                <div class="num">${fmtMoney(l.ext_price_total_current)}</div>
+                <div class="num">${fmtMoney(l.ext_price_total_prior1)}</div>
+                <div class="num">${fmtMoney(l.price_variance)}</div>
+                <div class="num">${fmtNum(l.ext_qty_total_current)}</div>
+                <div class="num">${fmtNum(l.ext_qty_total_prior1)}</div>
+                <div class="num">${fmtNum(l.pieces_variance)}</div>
+                <div class="num">${fmtNum(l.unique_sku)}</div>
               </div>
 
               <div id="${id}" class="report-indent" style="display:block;">
@@ -2630,7 +2609,7 @@ async function loadAreaGroup(groupId, members) {
         areaFooter = `
         <div style="border-top:1px solid #bbb; margin-top:6px;"></div>
         <div class="report-grid" ${gridStyle} style="padding:8px 6px; font-weight:800; font-size:16px;">
-          <div style="grid-column: 1 / span 2;">AREA TOTAL</div>
+          <div style="grid-column: 1 / span 1;">AREA TOTAL</div>
           <div class="num">${fmtMoney(areaGrand.c)}</div>
           <div class="num">${fmtMoney(areaGrand.p1)}</div>
           <div class="num">${fmtMoney(areaGrand.v)}</div>
@@ -2681,25 +2660,13 @@ async function loadAreaGroup(groupId, members) {
                    data-area-desc="${escapeHtml(data.area_desc || "")}"
                    data-loc-num="${escapeHtml(l.loc_num ?? "")}"
                    data-loc-desc="${escapeHtml(l.loc_desc || "")}">
-                <div class="mono" style="font-size:16px; font-weight:800;">${escapeHtml(
-                  l.loc_num ?? "",
-                )}${priorBtn}</div>
-                <div class="desc" style="font-size:16px; font-weight:800;">${escapeHtml(
-                  l.loc_desc || "",
-                )}</div>
+                
+                <div class="desc">${escapeHtml(l.loc_desc || "")}${priorBtn}</div>
 
-                <div class="num" style="font-size:16px; font-weight:800;">${fmtMoney(
-                  l.ext_price_total_current,
-                )}</div>
-                <div class="num" style="font-size:16px; font-weight:800;">${fmtMoney(
-                  l.ext_price_total_prior1,
-                )}</div>
-                <div class="num" style="font-size:16px; font-weight:800;">${fmtMoney(
-                  l.ext_price_total_prior2,
-                )}</div>
-                <div class="num" style="font-size:16px; font-weight:800;">${fmtMoney(
-                  l.ext_price_total_prior3,
-                )}</div>
+                <div class="num">${fmtMoney(l.ext_price_total_current)}</div>
+                <div class="num">${fmtMoney(l.ext_price_total_prior1)}</div>
+                <div class="num">${fmtMoney(l.ext_price_total_prior2)}</div>
+                <div class="num">${fmtMoney(l.ext_price_total_prior3)}</div>
               </div>
 
               <div id="${id}" class="report-indent" style="display:block;">
@@ -2713,7 +2680,7 @@ async function loadAreaGroup(groupId, members) {
         areaFooter = `
         <div style="border-top:1px solid #bbb; margin-top:6px;"></div>
         <div class="report-grid" style="padding:8px 6px; font-weight:800; font-size:16px;">
-          <div style="grid-column: 1 / span 2;">AREA TOTAL</div>
+          <div style="grid-column: 1 / span 1;">AREA TOTAL</div>
           <div class="num">${fmtMoney(areaGrand.c)}</div>
           <div class="num">${fmtMoney(areaGrand.p1)}</div>
           <div class="num">${fmtMoney(areaGrand.p2)}</div>
@@ -2745,11 +2712,11 @@ async function loadAreaGroup(groupId, members) {
   let footerHtml;
   if (isScanReport) {
     const gridStyle =
-      'style="grid-template-columns: var(--w-loc) minmax(0, 1fr) repeat(7, 85px);"';
+      'style="grid-template-columns: minmax(0, 1fr) repeat(7, 70px);"';
     footerHtml = `
     <div class="report-footer">
       <div class="report-grid" ${gridStyle} style="font-size:16px;">
-        <div style="grid-column: 1 / span 2; font-size:16px;">GROUP GRAND TOTAL</div>
+        <div style="grid-column: 1 / span 1; font-size:16px;">GROUP GRAND TOTAL</div>
         <div class="num">${fmtMoney(groupGrand.c)}</div>
         <div class="num">${fmtMoney(groupGrand.p1)}</div>
         <div class="num">${fmtMoney(groupGrand.v)}</div>
@@ -2764,7 +2731,7 @@ async function loadAreaGroup(groupId, members) {
     footerHtml = `
     <div class="report-footer">
       <div class="report-grid" style="font-size:16px;">
-        <div style="grid-column: 1 / span 2; font-size:16px;">GROUP GRAND TOTAL</div>
+        <div style="grid-column: 1 / span 1; font-size:16px;">GROUP GRAND TOTAL</div>
         <div class="num">${fmtMoney(groupGrand.c)}</div>
         <div class="num">${fmtMoney(groupGrand.p1)}</div>
         <div class="num">${fmtMoney(groupGrand.p2)}</div>
@@ -2885,13 +2852,13 @@ async function loadArea(file) {
     const col1 = fmtDateLabel(dates.current, "Current");
     const col2 = fmtDateLabel(dates.prior1, "Prior 1");
 
-    // Override the grid template for this specific view
+    // Override the grid template for this specific view (reduced column size)
     const gridStyle =
-      'style="grid-template-columns: var(--w-loc) minmax(0, 1fr) repeat(7, 85px);"';
+      'style="grid-template-columns: minmax(0, 1fr) repeat(7, 70px);"';
 
     headerColumns = `
       <div class="report-grid" ${gridStyle} style="font-weight:700; font-size:17px;">
-        <div style="grid-column: 1 / span 2; font-size:22px;">
+        <div style="grid-column: 1 / span 1; font-size:22px;">
           AREA <span class="mono">${escapeHtml(data.area_num ?? "")}</span>
           &nbsp;&nbsp; ${escapeHtml(data.area_desc || "")}
         </div>
@@ -2953,34 +2920,16 @@ async function loadArea(file) {
                data-area-desc="${escapeHtml(data.area_desc || "")}"
                data-loc-num="${escapeHtml(l.loc_num ?? "")}"
                data-loc-desc="${escapeHtml(l.loc_desc || "")}">
-            <div class="mono" style="font-size:16px; font-weight:800;">${escapeHtml(
-              l.loc_num ?? "",
-            )}<span class="loc-icon-row">${msgBtn}${priorBtn}</span></div>
-            <div class="desc" style="font-size:16px; font-weight:800;">${escapeHtml(
-              l.loc_desc || "",
-            )}</div>
+            
+            <div class="desc">${escapeHtml(l.loc_desc || "")}<span class="loc-icon-row">${msgBtn}${priorBtn}</span></div>
 
-            <div class="num" style="font-size:16px; font-weight:800;">${fmtMoney(
-              l.ext_price_total_current,
-            )}</div>
-            <div class="num" style="font-size:16px; font-weight:800;">${fmtMoney(
-              l.ext_price_total_prior1,
-            )}</div>
-            <div class="num" style="font-size:16px; font-weight:800;">${fmtMoney(
-              l.price_variance,
-            )}</div>
-            <div class="num" style="font-size:16px; font-weight:800;">${fmtNum(
-              l.ext_qty_total_current,
-            )}</div>
-            <div class="num" style="font-size:16px; font-weight:800;">${fmtNum(
-              l.ext_qty_total_prior1,
-            )}</div>
-            <div class="num" style="font-size:16px; font-weight:800;">${fmtNum(
-              l.pieces_variance,
-            )}</div>
-            <div class="num" style="font-size:16px; font-weight:800;">${fmtNum(
-              l.unique_sku,
-            )}</div>
+            <div class="num">${fmtMoney(l.ext_price_total_current)}</div>
+            <div class="num">${fmtMoney(l.ext_price_total_prior1)}</div>
+            <div class="num">${fmtMoney(l.price_variance)}</div>
+            <div class="num">${fmtNum(l.ext_qty_total_current)}</div>
+            <div class="num">${fmtNum(l.ext_qty_total_prior1)}</div>
+            <div class="num">${fmtNum(l.pieces_variance)}</div>
+            <div class="num">${fmtNum(l.unique_sku)}</div>
           </div>
 
           <div id="${id}" class="report-indent" style="display:block;">
@@ -2998,8 +2947,8 @@ async function loadArea(file) {
     const col4 = fmtDateLabel(dates.prior3, "Prior 3");
 
     headerColumns = `
-      <div class="report-grid" style="font-weight:700; font-size:19px;">
-        <div style="grid-column: 1 / span 2; font-size:22px;">
+      <div class="report-grid" style="font-weight:700; font-size:17px;">
+        <div style="grid-column: 1 / span 1; font-size:22px;">
           AREA <span class="mono">${escapeHtml(data.area_num ?? "")}</span>
           &nbsp;&nbsp; ${escapeHtml(data.area_desc || "")}
         </div>
@@ -3054,25 +3003,13 @@ async function loadArea(file) {
                data-area-desc="${escapeHtml(data.area_desc || "")}"
                data-loc-num="${escapeHtml(l.loc_num ?? "")}"
                data-loc-desc="${escapeHtml(l.loc_desc || "")}">
-            <div class="mono" style="font-size:16px; font-weight:800;">${escapeHtml(
-              l.loc_num ?? "",
-            )}<span class="loc-icon-row">${msgBtn}${priorBtn}</span></div>
-            <div class="desc" style="font-size:16px; font-weight:800;">${escapeHtml(
-              l.loc_desc || "",
-            )}</div>
+            
+            <div class="desc">${escapeHtml(l.loc_desc || "")}<span class="loc-icon-row">${msgBtn}${priorBtn}</span></div>
 
-            <div class="num" style="font-size:16px; font-weight:800;">${fmtMoney(
-              l.ext_price_total_current,
-            )}</div>
-            <div class="num" style="font-size:16px; font-weight:800;">${fmtMoney(
-              l.ext_price_total_prior1,
-            )}</div>
-            <div class="num" style="font-size:16px; font-weight:800;">${fmtMoney(
-              l.ext_price_total_prior2,
-            )}</div>
-            <div class="num" style="font-size:16px; font-weight:800;">${fmtMoney(
-              l.ext_price_total_prior3,
-            )}</div>
+            <div class="num">${fmtMoney(l.ext_price_total_current)}</div>
+            <div class="num">${fmtMoney(l.ext_price_total_prior1)}</div>
+            <div class="num">${fmtMoney(l.ext_price_total_prior2)}</div>
+            <div class="num">${fmtMoney(l.ext_price_total_prior3)}</div>
           </div>
 
           <div id="${id}" class="report-indent" style="display:block;">
@@ -3097,11 +3034,11 @@ async function loadArea(file) {
   let footerHtml;
   if (isScanReport) {
     const gridStyle =
-      'style="grid-template-columns: var(--w-loc) minmax(0, 1fr) repeat(7, 85px);"';
+      'style="grid-template-columns: minmax(0, 1fr) repeat(7, 70px);"';
     footerHtml = `
       <div class="report-footer">
         <div class="report-grid" ${gridStyle} style="font-size:16px;">
-          <div style="grid-column: 1 / span 2; font-size:16px;">GRAND TOTAL</div>
+          <div style="grid-column: 1 / span 1; font-size:16px;">GRAND TOTAL</div>
           <div class="num">${fmtMoney(grand.c)}</div>
           <div class="num">${fmtMoney(grand.p1)}</div>
           <div class="num">${fmtMoney(grand.v)}</div>
@@ -3116,7 +3053,7 @@ async function loadArea(file) {
     footerHtml = `
       <div class="report-footer">
         <div class="report-grid" style="font-size:16px;">
-          <div style="grid-column: 1 / span 2; font-size:16px;">GRAND TOTAL</div>
+          <div style="grid-column: 1 / span 1; font-size:16px;">GRAND TOTAL</div>
           <div class="num">${fmtMoney(grand.c)}</div>
           <div class="num">${fmtMoney(grand.p1)}</div>
           <div class="num">${fmtMoney(grand.p2)}</div>
