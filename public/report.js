@@ -829,6 +829,12 @@ function fmtNum(v) {
   return Number.isNaN(n) ? String(v) : String(n);
 }
 
+function varianceClass(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n) || n === 0) return "var-zero";
+  return n > 0 ? "var-pos" : "var-neg";
+}
+
 function escapeHtml(str) {
   return String(str)
     .replaceAll("&", "&amp;")
@@ -890,7 +896,7 @@ function calculateDynamicGrid(locations, reportType, headerLabels) {
     // SKU: 3 chars (~44px, but 'SKUs' header needs ~52px)
     // Col structure: [Desc] [Cur$] [Prior1$] [Var$] [Pieces] [PriorPieces] [VarPieces] [SKUs]
     // 100 100 100 72 62 62 52
-    return `style="padding:2px 6px; grid-template-columns: minmax(0, 1fr) 100px 100px 100px 72px 62px 62px 52px;"`;
+    return `style="padding:2px 6px; column-gap:8px; grid-template-columns: minmax(0, 1fr) 92px 92px 92px 64px 56px 56px 48px;"`;
   }
 
   // Fallback / Standard report dynamic calculation
@@ -953,7 +959,7 @@ function renderBreakdown(bd, reportType, gridStyleOverride) {
   const gridStyle =
     gridStyleOverride ||
     (isScanReport
-      ? 'style="padding:2px 6px; grid-template-columns: minmax(0, 1fr) 100px 100px 100px 72px 62px 62px 52px;"'
+      ? 'style="padding:2px 6px; column-gap:8px; grid-template-columns: minmax(0, 1fr) 92px 92px 92px 64px 56px 56px 48px;"'
       : 'style="padding:2px 6px;"');
 
   // Helper to generate the right columns based on type
@@ -962,10 +968,10 @@ function renderBreakdown(bd, reportType, gridStyleOverride) {
       return `
         <div class="num">${fmtMoney(item.ext_price_total_current)}</div>
         <div class="num">${fmtMoney(item.ext_price_total_prior1)}</div>
-        <div class="num">${fmtMoney(item.price_variance)}</div>
+        <div class="num variance ${varianceClass(item.price_variance)}">${fmtMoney(item.price_variance)}</div>
         <div class="num">${fmtNum(item.ext_qty_total_current)}</div>
         <div class="num">${fmtNum(item.ext_qty_total_prior1)}</div>
-        <div class="num">${fmtNum(item.pieces_variance)}</div>
+        <div class="num variance ${varianceClass(item.pieces_variance)}">${fmtNum(item.pieces_variance)}</div>
         <div class="num">${fmtNum(item.unique_sku)}</div>
       `;
     } else {
@@ -1764,6 +1770,169 @@ function wirePriorDescButtons(root) {
   });
 }
 
+function setBreakdownExpanded(btn, panel, nextOpen) {
+  btn.setAttribute("aria-expanded", nextOpen ? "true" : "false");
+  btn.classList.toggle("open", nextOpen);
+  btn.setAttribute(
+    "aria-label",
+    nextOpen ? "Collapse category breakdown" : "Expand category breakdown",
+  );
+  btn.setAttribute(
+    "title",
+    nextOpen ? "Hide category breakdown" : "Show category breakdown",
+  );
+
+  panel.hidden = !nextOpen;
+  const row = btn.closest(".report-row.report-main");
+  if (row) row.classList.toggle("expanded", nextOpen);
+}
+
+const BREAKDOWN_PREF_COOKIE = "report_breakdown_pref_v1";
+
+function readCookie(name) {
+  const parts = String(document.cookie || "").split(";");
+  for (const p of parts) {
+    const [k, ...rest] = p.trim().split("=");
+    if (k === name) return decodeURIComponent(rest.join("=") || "");
+  }
+  return "";
+}
+
+function writeCookie(name, value, days = 365) {
+  const expires = new Date(Date.now() + days * 24 * 60 * 60 * 1000)
+    .toUTCString();
+  document.cookie = `${name}=${encodeURIComponent(value)}; expires=${expires}; path=/; SameSite=Lax`;
+}
+
+function parseBreakdownPrefs() {
+  const raw = readCookie(BREAKDOWN_PREF_COOKIE);
+  if (!raw) return {};
+  try {
+    const obj = JSON.parse(raw);
+    return obj && typeof obj === "object" ? obj : {};
+  } catch {
+    return {};
+  }
+}
+
+function getPreferredBreakdownExpanded(reportTypeKey) {
+  const prefs = parseBreakdownPrefs();
+  if (Object.prototype.hasOwnProperty.call(prefs, reportTypeKey)) {
+    return !!prefs[reportTypeKey];
+  }
+  // Default policy:
+  // - standard reports (non scan_report): expanded
+  // - scan_report: collapsed
+  return reportTypeKey !== "scan_report";
+}
+
+function savePreferredBreakdownExpanded(reportTypeKey, expanded) {
+  const prefs = parseBreakdownPrefs();
+  prefs[reportTypeKey] = !!expanded;
+  writeCookie(BREAKDOWN_PREF_COOKIE, JSON.stringify(prefs));
+}
+
+function applyBreakdownPreference(root, reportTypeKey) {
+  const scope = root || document;
+  const shouldOpen = getPreferredBreakdownExpanded(reportTypeKey);
+  const buttons = Array.from(scope.querySelectorAll(".row-disclosure-btn"));
+
+  buttons.forEach((btn) => {
+    const targetId = btn.dataset.target || "";
+    const panel = targetId ? document.getElementById(targetId) : null;
+    if (!panel) return;
+    setBreakdownExpanded(btn, panel, shouldOpen);
+  });
+
+  refreshToggleAllBreakdownsButton(scope);
+}
+
+function refreshToggleAllBreakdownsButton(root) {
+  const toggleBtn = document.getElementById("toggle-all-breakdowns");
+  if (!toggleBtn) return;
+
+  const buttons = Array.from(
+    (root || document).querySelectorAll(".row-disclosure-btn"),
+  );
+
+  if (buttons.length === 0) {
+    toggleBtn.disabled = true;
+    toggleBtn.textContent = "Expand All";
+    return;
+  }
+
+  toggleBtn.disabled = false;
+  const allOpen = buttons.every((b) => b.getAttribute("aria-expanded") === "true");
+  toggleBtn.textContent = allOpen ? "Collapse All" : "Expand All";
+}
+
+function wireBreakdownDisclosureButtons(root, reportTypeKey = "standard") {
+  (root || document).querySelectorAll(".row-disclosure-btn").forEach((btn) => {
+    if (btn.dataset.boundDisclosure === "1") return;
+    btn.dataset.boundDisclosure = "1";
+
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      const targetId = btn.dataset.target || "";
+      if (!targetId) return;
+
+      const panel = document.getElementById(targetId);
+      if (!panel) return;
+
+      const nextOpen = btn.getAttribute("aria-expanded") !== "true";
+      setBreakdownExpanded(btn, panel, nextOpen);
+      const scope = root || document;
+      refreshToggleAllBreakdownsButton(scope);
+
+      // If user ends up with everything open/closed by individual toggles,
+      // treat that as their preference for this report type.
+      const buttons = Array.from(scope.querySelectorAll(".row-disclosure-btn"));
+      const allOpen = buttons.length > 0 &&
+        buttons.every((b) => b.getAttribute("aria-expanded") === "true");
+      const allClosed = buttons.length > 0 &&
+        buttons.every((b) => b.getAttribute("aria-expanded") !== "true");
+      if (allOpen || allClosed) {
+        savePreferredBreakdownExpanded(reportTypeKey, allOpen);
+      }
+    });
+  });
+}
+
+function wireToggleAllBreakdownsButton(root, reportTypeKey = "standard") {
+  const toggleBtn = document.getElementById("toggle-all-breakdowns");
+  if (!toggleBtn || toggleBtn.dataset.boundToggleAll === "1") {
+    refreshToggleAllBreakdownsButton(root || document);
+    return;
+  }
+  toggleBtn.dataset.boundToggleAll = "1";
+
+  toggleBtn.addEventListener("click", (e) => {
+    e.preventDefault();
+
+    const scope = root || document;
+    const buttons = Array.from(scope.querySelectorAll(".row-disclosure-btn"));
+    if (buttons.length === 0) return;
+
+    const shouldOpen = buttons.some(
+      (b) => b.getAttribute("aria-expanded") !== "true",
+    );
+
+    buttons.forEach((btn) => {
+      const targetId = btn.dataset.target || "";
+      const panel = targetId ? document.getElementById(targetId) : null;
+      if (!panel) return;
+      setBreakdownExpanded(btn, panel, shouldOpen);
+    });
+
+    savePreferredBreakdownExpanded(reportTypeKey, shouldOpen);
+    refreshToggleAllBreakdownsButton(scope);
+  });
+
+  refreshToggleAllBreakdownsButton(root || document);
+}
+
 // --------------------
 // Row click wiring
 // --------------------
@@ -2530,6 +2699,7 @@ async function loadAreaGroup(groupId, members) {
   const first = results[0]?.data || {};
   const dates = first.dates || {};
   const isScanReport = first.report_type === "scan_report";
+  const reportTypeKey = isScanReport ? "scan_report" : "standard";
 
   function fmtDateLabel(iso, fallback) {
     if (!iso) return fallback;
@@ -2607,6 +2777,7 @@ async function loadAreaGroup(groupId, members) {
     <div class="report-header">
       <div class="row" style="margin-bottom:10px;">
         <button id="back-to-areas" class="btn" type="button">← Areas</button>
+        <button id="toggle-all-breakdowns" class="btn" type="button">Expand All</button>
         <button id="mark-reviewed" class="btn btn-primary" type="button">Mark Reviewed</button>
       </div>
       ${headerColumns}
@@ -2662,6 +2833,7 @@ async function loadAreaGroup(groupId, members) {
             const priorBlock = showPrior
               ? `<div id="${id}-prior" class="prior-desc" style="display:none;"></div>`
               : "";
+            const disclosureBtn = `<button class="row-disclosure-btn" type="button" aria-expanded="false" aria-label="Expand category breakdown" title="Show category breakdown" data-target="${id}">▾</button>`;
 
             return `
             <div class="report-block">
@@ -2673,18 +2845,18 @@ async function loadAreaGroup(groupId, members) {
                    data-loc-num="${escapeHtml(l.loc_num ?? "")}"
                    data-loc-desc="${escapeHtml(l.loc_desc || "")}">
                 
-                <div class="desc" title="${escapeHtml(l.loc_desc || "")}">${escapeHtml(l.loc_desc || "")}${priorBtn}</div>
+                <div class="desc" title="${escapeHtml(l.loc_desc || "")}"><span class="desc-text">${escapeHtml(l.loc_desc || "")}</span><span class="loc-icon-row">${disclosureBtn}${priorBtn}</span></div>
 
                 <div class="num">${fmtMoney(l.ext_price_total_current)}</div>
                 <div class="num">${fmtMoney(l.ext_price_total_prior1)}</div>
-                <div class="num">${fmtMoney(l.price_variance)}</div>
+                <div class="num variance ${varianceClass(l.price_variance)}">${fmtMoney(l.price_variance)}</div>
                 <div class="num">${fmtNum(l.ext_qty_total_current)}</div>
                 <div class="num">${fmtNum(l.ext_qty_total_prior1)}</div>
-                <div class="num">${fmtNum(l.pieces_variance)}</div>
+                <div class="num variance ${varianceClass(l.pieces_variance)}">${fmtNum(l.pieces_variance)}</div>
                 <div class="num">${fmtNum(l.unique_sku)}</div>
               </div>
 
-              <div id="${id}" class="report-indent" style="display:block;">
+              <div id="${id}" class="report-indent" hidden>
                 ${priorBlock}${renderBreakdown(
                   l.report_breakdown,
                   "scan_report",
@@ -2702,10 +2874,10 @@ async function loadAreaGroup(groupId, members) {
           <div style="grid-column: 1 / span 1;">AREA TOTAL</div>
           <div class="num">${fmtMoney(areaGrand.c)}</div>
           <div class="num">${fmtMoney(areaGrand.p1)}</div>
-          <div class="num">${fmtMoney(areaGrand.v)}</div>
+          <div class="num variance ${varianceClass(areaGrand.v)}">${fmtMoney(areaGrand.v)}</div>
           <div class="num">${fmtNum(areaGrand.qc)}</div>
           <div class="num">${fmtNum(areaGrand.qp1)}</div>
-          <div class="num">${fmtNum(areaGrand.qv)}</div>
+          <div class="num variance ${varianceClass(areaGrand.qv)}">${fmtNum(areaGrand.qv)}</div>
           <div class="num">${fmtNum(areaGrand.sku)}</div>
         </div>
       `;
@@ -2740,6 +2912,7 @@ async function loadAreaGroup(groupId, members) {
             const priorBlock = showPrior
               ? `<div id="${id}-prior" class="prior-desc" style="display:none;"></div>`
               : "";
+            const disclosureBtn = `<button class="row-disclosure-btn" type="button" aria-expanded="false" aria-label="Expand category breakdown" title="Show category breakdown" data-target="${id}">▾</button>`;
 
             return `
             <div class="report-block">
@@ -2751,7 +2924,7 @@ async function loadAreaGroup(groupId, members) {
                    data-loc-num="${escapeHtml(l.loc_num ?? "")}"
                    data-loc-desc="${escapeHtml(l.loc_desc || "")}">
                 
-                <div class="desc" title="${escapeHtml(l.loc_desc || "")}">${escapeHtml(l.loc_desc || "")}${priorBtn}</div>
+                <div class="desc" title="${escapeHtml(l.loc_desc || "")}"><span class="desc-text">${escapeHtml(l.loc_desc || "")}</span><span class="loc-icon-row">${disclosureBtn}${priorBtn}</span></div>
 
                 <div class="num">${fmtMoney(l.ext_price_total_current)}</div>
                 <div class="num">${fmtMoney(l.ext_price_total_prior1)}</div>
@@ -2759,7 +2932,7 @@ async function loadAreaGroup(groupId, members) {
                 <div class="num">${fmtMoney(l.ext_price_total_prior3)}</div>
               </div>
 
-              <div id="${id}" class="report-indent" style="display:block;">
+              <div id="${id}" class="report-indent" hidden>
                 ${priorBlock}${renderBreakdown(l.report_breakdown, "standard", gridStyle)}
               </div>
             </div>
@@ -2807,10 +2980,10 @@ async function loadAreaGroup(groupId, members) {
         <div style="grid-column: 1 / span 1; font-size:16px;">GROUP GRAND TOTAL</div>
         <div class="num">${fmtMoney(groupGrand.c)}</div>
         <div class="num">${fmtMoney(groupGrand.p1)}</div>
-        <div class="num">${fmtMoney(groupGrand.v)}</div>
+        <div class="num variance ${varianceClass(groupGrand.v)}">${fmtMoney(groupGrand.v)}</div>
         <div class="num">${fmtNum(groupGrand.qc)}</div>
         <div class="num">${fmtNum(groupGrand.qp1)}</div>
-        <div class="num">${fmtNum(groupGrand.qv)}</div>
+        <div class="num variance ${varianceClass(groupGrand.qv)}">${fmtNum(groupGrand.qv)}</div>
         <div class="num">${fmtNum(groupGrand.sku)}</div>
       </div>
     </div>
@@ -2840,6 +3013,9 @@ async function loadAreaGroup(groupId, members) {
     area_desc: null,
   });
 
+  wireBreakdownDisclosureButtons(content, reportTypeKey);
+  wireToggleAllBreakdownsButton(content, reportTypeKey);
+  applyBreakdownPreference(content, reportTypeKey);
   wirePriorDescButtons(content);
   statusEl.textContent = `Loaded group ${groupId}`;
 
@@ -2922,6 +3098,7 @@ async function loadArea(file) {
 
   const locs = Array.isArray(data.locations) ? data.locations : [];
   const isScanReport = data.report_type === "scan_report";
+  const reportTypeKey = isScanReport ? "scan_report" : "standard";
 
   // report view: fullscreen
   setSplitMode("fullscreen");
@@ -2996,6 +3173,7 @@ async function loadArea(file) {
         const priorBlock = showPrior
           ? `<div id="${id}-prior" class="prior-desc" style="display:none;"></div>`
           : "";
+        const disclosureBtn = `<button class="row-disclosure-btn" type="button" aria-expanded="false" aria-label="Expand category breakdown" title="Show category breakdown" data-target="${id}">▾</button>`;
 
         const locMsg = getLocationMessage(l);
         const msgBtn = locMsg
@@ -3017,18 +3195,18 @@ async function loadArea(file) {
                data-loc-num="${escapeHtml(l.loc_num ?? "")}"
                data-loc-desc="${escapeHtml(l.loc_desc || "")}">
             
-            <div class="desc" title="${escapeHtml(l.loc_desc || "")}">${escapeHtml(l.loc_desc || "")}<span class="loc-icon-row">${msgBtn}${priorBtn}</span></div>
+            <div class="desc" title="${escapeHtml(l.loc_desc || "")}"><span class="desc-text">${escapeHtml(l.loc_desc || "")}</span><span class="loc-icon-row">${disclosureBtn}${msgBtn}${priorBtn}</span></div>
 
             <div class="num">${fmtMoney(l.ext_price_total_current)}</div>
             <div class="num">${fmtMoney(l.ext_price_total_prior1)}</div>
-            <div class="num">${fmtMoney(l.price_variance)}</div>
+            <div class="num variance ${varianceClass(l.price_variance)}">${fmtMoney(l.price_variance)}</div>
             <div class="num">${fmtNum(l.ext_qty_total_current)}</div>
             <div class="num">${fmtNum(l.ext_qty_total_prior1)}</div>
-            <div class="num">${fmtNum(l.pieces_variance)}</div>
+            <div class="num variance ${varianceClass(l.pieces_variance)}">${fmtNum(l.pieces_variance)}</div>
             <div class="num">${fmtNum(l.unique_sku)}</div>
           </div>
 
-          <div id="${id}" class="report-indent" style="display:block;">
+          <div id="${id}" class="report-indent" hidden>
             ${priorBlock}${renderBreakdown(l.report_breakdown, "scan_report", gridStyle)}
           </div>
         </div>
@@ -3086,6 +3264,7 @@ async function loadArea(file) {
         const priorBlock = showPrior
           ? `<div id="${id}-prior" class="prior-desc" style="display:none;"></div>`
           : "";
+        const disclosureBtn = `<button class="row-disclosure-btn" type="button" aria-expanded="false" aria-label="Expand category breakdown" title="Show category breakdown" data-target="${id}">▾</button>`;
 
         const locMsg = getLocationMessage(l);
         const msgBtn = locMsg
@@ -3107,7 +3286,7 @@ async function loadArea(file) {
                data-loc-num="${escapeHtml(l.loc_num ?? "")}"
                data-loc-desc="${escapeHtml(l.loc_desc || "")}">
             
-            <div class="desc" title="${escapeHtml(l.loc_desc || "")}">${escapeHtml(l.loc_desc || "")}<span class="loc-icon-row">${msgBtn}${priorBtn}</span></div>
+            <div class="desc" title="${escapeHtml(l.loc_desc || "")}"><span class="desc-text">${escapeHtml(l.loc_desc || "")}</span><span class="loc-icon-row">${disclosureBtn}${msgBtn}${priorBtn}</span></div>
 
             <div class="num">${fmtMoney(l.ext_price_total_current)}</div>
             <div class="num">${fmtMoney(l.ext_price_total_prior1)}</div>
@@ -3115,7 +3294,7 @@ async function loadArea(file) {
             <div class="num">${fmtMoney(l.ext_price_total_prior3)}</div>
           </div>
 
-          <div id="${id}" class="report-indent" style="display:block;">
+          <div id="${id}" class="report-indent" hidden>
             ${priorBlock}${renderBreakdown(l.report_breakdown, "standard", gridStyle)}
           </div>
         </div>
@@ -3128,6 +3307,7 @@ async function loadArea(file) {
     <div class="report-header">
       <div class="row" style="margin-bottom:10px;">
         <button id="back-to-areas" class="btn" type="button">← Areas</button>
+        <button id="toggle-all-breakdowns" class="btn" type="button">Expand All</button>
         <button id="mark-reviewed" class="btn btn-primary" type="button">Mark Reviewed</button>
       </div>
       ${headerColumns}
@@ -3142,10 +3322,10 @@ async function loadArea(file) {
           <div style="grid-column: 1 / span 1; font-size:16px;">GRAND TOTAL</div>
           <div class="num">${fmtMoney(grand.c)}</div>
           <div class="num">${fmtMoney(grand.p1)}</div>
-          <div class="num">${fmtMoney(grand.v)}</div>
+          <div class="num variance ${varianceClass(grand.v)}">${fmtMoney(grand.v)}</div>
           <div class="num">${fmtNum(grand.qc)}</div>
           <div class="num">${fmtNum(grand.qp1)}</div>
-          <div class="num">${fmtNum(grand.qv)}</div>
+          <div class="num variance ${varianceClass(grand.qv)}">${fmtNum(grand.qv)}</div>
           <div class="num">${fmtNum(grand.sku)}</div>
         </div>
       </div>
@@ -3175,6 +3355,9 @@ async function loadArea(file) {
     area_desc: data.area_desc || "",
   });
 
+  wireBreakdownDisclosureButtons(content, reportTypeKey);
+  wireToggleAllBreakdownsButton(content, reportTypeKey);
+  applyBreakdownPreference(content, reportTypeKey);
   wirePriorDescButtons(content);
   wireLocationMessageButtons(content);
 

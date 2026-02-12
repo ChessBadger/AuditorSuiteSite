@@ -926,3 +926,139 @@ main.panel {
     font-size: 12px !important;
   }
 }
+
+/* Report redesign: dense, scannable, collapsible */
+.report-block {
+  border-bottom: none;
+  padding: 2px 0;
+}
+
+.report-main {
+  border: 1px solid #d8dde6;
+  border-radius: 10px;
+  background: linear-gradient(to bottom, #fff, #fbfcfe);
+  box-shadow: 0 1px 0 rgba(17, 24, 39, 0.05);
+}
+
+.report-main.expanded {
+  border-color: #bcc6d6;
+  box-shadow: 0 2px 0 rgba(17, 24, 39, 0.08);
+}
+
+.report-main .desc {
+  font-weight: 800;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  overflow: visible;
+}
+
+.report-main .desc-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: block;
+}
+
+.report-sub {
+  font-size: 12px;
+  color: #667085;
+  padding: 3px 6px;
+}
+
+.report-sub .desc {
+  font-weight: 500;
+  padding-left: 10px;
+}
+
+.report-sub .num {
+  color: #5f6673;
+  font-weight: 500;
+}
+
+.report-indent {
+  margin: 2px 4px 6px 4px;
+  padding: 6px 0 8px 0;
+  border-left: none;
+  background: rgba(247, 249, 252, 0.9);
+  border-radius: 8px;
+  position: relative;
+}
+
+.report-indent::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 4px;
+  bottom: 4px;
+  width: 2px;
+  border-radius: 2px;
+  background: #e1e6ef;
+}
+
+.row-disclosure-btn {
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  border-radius: 8px;
+  border: 1px solid #c8d0de;
+  background: #fff;
+  color: #334155;
+  font-size: 15px;
+  line-height: 1;
+  font-weight: 800;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    transform 140ms ease,
+    background 140ms ease,
+    border-color 140ms ease;
+}
+
+.row-disclosure-btn:hover {
+  background: #f3f6fb;
+  border-color: #adb8cb;
+}
+
+.row-disclosure-btn.open {
+  transform: rotate(180deg);
+}
+
+.row-disclosure-btn:focus-visible {
+  box-shadow: 0 0 0 3px rgba(41, 98, 255, 0.2);
+}
+
+.loc-icon-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 6px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.prior-desc-btn,
+.loc-msg-btn {
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  font-size: 14px;
+}
+
+.variance.var-pos {
+  color: #137333;
+  font-weight: 800;
+}
+
+.variance.var-neg {
+  color: #b3261e;
+  font-weight: 800;
+}
+
+.variance.var-zero {
+  color: #5f6b7a;
+}
