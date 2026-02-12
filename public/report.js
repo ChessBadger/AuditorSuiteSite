@@ -990,7 +990,7 @@ function renderBreakdown(bd, reportType, gridStyleOverride) {
     <div class="desc">
       <span class="catcell">
         <span class="mono catnum">${escapeHtml(g.cat_group_num ?? "")}</span>
-        <span class="catdesc">${escapeHtml(g.group_desc ?? "")}</span>
+        <span class="catdesc" title="${escapeHtml(g.group_desc ?? "")}">${escapeHtml(g.group_desc ?? "")}</span>
       </span>
     </div>
     ${renderCols(g)}
@@ -1011,7 +1011,7 @@ function renderBreakdown(bd, reportType, gridStyleOverride) {
     <div class="desc">
       <span class="catcell">
         <span class="mono catnum">${escapeHtml(c.cat_num ?? "")}</span>
-        <span class="catdesc">${escapeHtml(c.cat_desc ?? "")}</span>
+        <span class="catdesc" title="${escapeHtml(c.cat_desc ?? "")}">${escapeHtml(c.cat_desc ?? "")}</span>
       </span>
     </div>
     ${renderCols(c)}
@@ -1027,7 +1027,7 @@ function renderBreakdown(bd, reportType, gridStyleOverride) {
       .map(
         (g) => `
         <div class="report-grid report-sub" ${gridStyle}>
-          <div class="desc">${escapeHtml(g.group_desc ?? "")}</div>
+          <div class="desc" title="${escapeHtml(g.group_desc ?? "")}">${escapeHtml(g.group_desc ?? "")}</div>
           ${renderCols(g)}
         </div>
       `,
@@ -1040,7 +1040,7 @@ function renderBreakdown(bd, reportType, gridStyleOverride) {
       .map(
         (c) => `
         <div class="report-grid report-sub" ${gridStyle}>
-          <div class="desc">${escapeHtml(c.cat_desc ?? "")}</div>
+          <div class="desc" title="${escapeHtml(c.cat_desc ?? "")}">${escapeHtml(c.cat_desc ?? "")}</div>
           ${renderCols(c)}
         </div>
       `,
@@ -2673,7 +2673,7 @@ async function loadAreaGroup(groupId, members) {
                    data-loc-num="${escapeHtml(l.loc_num ?? "")}"
                    data-loc-desc="${escapeHtml(l.loc_desc || "")}">
                 
-                <div class="desc">${escapeHtml(l.loc_desc || "")}${priorBtn}</div>
+                <div class="desc" title="${escapeHtml(l.loc_desc || "")}">${escapeHtml(l.loc_desc || "")}${priorBtn}</div>
 
                 <div class="num">${fmtMoney(l.ext_price_total_current)}</div>
                 <div class="num">${fmtMoney(l.ext_price_total_prior1)}</div>
@@ -2751,7 +2751,7 @@ async function loadAreaGroup(groupId, members) {
                    data-loc-num="${escapeHtml(l.loc_num ?? "")}"
                    data-loc-desc="${escapeHtml(l.loc_desc || "")}">
                 
-                <div class="desc">${escapeHtml(l.loc_desc || "")}${priorBtn}</div>
+                <div class="desc" title="${escapeHtml(l.loc_desc || "")}">${escapeHtml(l.loc_desc || "")}${priorBtn}</div>
 
                 <div class="num">${fmtMoney(l.ext_price_total_current)}</div>
                 <div class="num">${fmtMoney(l.ext_price_total_prior1)}</div>
@@ -2790,7 +2790,7 @@ async function loadAreaGroup(groupId, members) {
       `;
 
       return `
-        <div style="margin-top: 10px;">
+        <div class="report-area-section">
           ${areaTitle}
           <div>${rowsHtml}</div>
           ${areaFooter}
@@ -2829,7 +2829,8 @@ async function loadAreaGroup(groupId, members) {
   `;
   }
 
-  content.innerHTML = headerHtml + `<div>${sectionsHtml}</div>` + footerHtml;
+  content.innerHTML =
+    headerHtml + `<div class="report-body">${sectionsHtml}</div>` + footerHtml;
 
   // Wire row clicks to open modal
   wireLocationRowClicks(content, {
@@ -3016,7 +3017,7 @@ async function loadArea(file) {
                data-loc-num="${escapeHtml(l.loc_num ?? "")}"
                data-loc-desc="${escapeHtml(l.loc_desc || "")}">
             
-            <div class="desc">${escapeHtml(l.loc_desc || "")}<span class="loc-icon-row">${msgBtn}${priorBtn}</span></div>
+            <div class="desc" title="${escapeHtml(l.loc_desc || "")}">${escapeHtml(l.loc_desc || "")}<span class="loc-icon-row">${msgBtn}${priorBtn}</span></div>
 
             <div class="num">${fmtMoney(l.ext_price_total_current)}</div>
             <div class="num">${fmtMoney(l.ext_price_total_prior1)}</div>
@@ -3106,7 +3107,7 @@ async function loadArea(file) {
                data-loc-num="${escapeHtml(l.loc_num ?? "")}"
                data-loc-desc="${escapeHtml(l.loc_desc || "")}">
             
-            <div class="desc">${escapeHtml(l.loc_desc || "")}<span class="loc-icon-row">${msgBtn}${priorBtn}</span></div>
+            <div class="desc" title="${escapeHtml(l.loc_desc || "")}">${escapeHtml(l.loc_desc || "")}<span class="loc-icon-row">${msgBtn}${priorBtn}</span></div>
 
             <div class="num">${fmtMoney(l.ext_price_total_current)}</div>
             <div class="num">${fmtMoney(l.ext_price_total_prior1)}</div>
@@ -3163,7 +3164,8 @@ async function loadArea(file) {
     `;
   }
 
-  content.innerHTML = headerHtml + `<div>${rowsHtml}</div>` + footerHtml;
+  content.innerHTML =
+    headerHtml + `<div class="report-body">${rowsHtml}</div>` + footerHtml;
 
   // Wire row clicks to open modal
   wireLocationRowClicks(content, {
