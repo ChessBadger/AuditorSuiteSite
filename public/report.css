@@ -1062,3 +1062,42 @@ main.panel {
 .variance.var-zero {
   color: #5f6b7a;
 }
+
+/* Reclaim horizontal space while keeping card separation */
+body {
+  padding: max(8px, env(safe-area-inset-top))
+    max(4px, env(safe-area-inset-right)) max(14px, env(safe-area-inset-bottom))
+    max(4px, env(safe-area-inset-left));
+}
+
+.split {
+  gap: 10px;
+}
+
+.panel {
+  padding: 10px;
+}
+
+main.panel {
+  padding: 8px;
+}
+
+.report-area-section {
+  margin-top: 6px;
+}
+
+.report-indent {
+  margin: 2px 1px 6px 1px;
+}
+
+@media (max-width: 900px) {
+  body {
+    padding: max(6px, env(safe-area-inset-top))
+      max(2px, env(safe-area-inset-right))
+      max(12px, env(safe-area-inset-bottom)) max(2px, env(safe-area-inset-left));
+  }
+
+  .panel {
+    padding: 8px;
+  }
+}
