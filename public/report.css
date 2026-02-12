@@ -246,7 +246,7 @@ h1 {
 }
 
 .report-grid .desc {
-  min-width: 0;
+  min-width: 150px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap; /* keeps it “report-like” and prevents horizontal scroll */

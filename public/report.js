@@ -604,7 +604,7 @@ function ensureFsOverlay() {
   `;
   el.innerHTML = `
     <button id="fs-overlay-btn" class="btn btn-primary" type="button"
-      style="font-size:22px; padding:16px 18px; border-radius:14px;">
+      style="font-size:17px; padding:16px 18px; border-radius:14px;">
       Tap to resume
     </button>
   `;
@@ -872,7 +872,74 @@ function getExportGrouping(data) {
   };
 }
 
-function renderBreakdown(bd, reportType) {
+// --------------------
+// DYNAMIC COLUMN WIDTH CALCULATION
+// --------------------
+
+// Estimates char width for 17px font + padding
+const CHAR_WIDTH_PX = 9.5;
+const COL_PADDING_PX = 14;
+
+function calculateDynamicGrid(locations, reportType, headerLabels) {
+  const isScanReport = reportType === "scan_report";
+
+  if (isScanReport) {
+    // User requested optimization based on max chars:
+    // $ cols: 9 chars (~100px)
+    // Qty cols: 5 chars (~62px, but 'Pieces' header needs ~72px)
+    // SKU: 3 chars (~44px, but 'SKUs' header needs ~52px)
+    // Col structure: [Desc] [Cur$] [Prior1$] [Var$] [Pieces] [PriorPieces] [VarPieces] [SKUs]
+    // 100 100 100 72 62 62 52
+    return `style="padding:2px 6px; grid-template-columns: minmax(0, 1fr) 100px 100px 100px 72px 62px 62px 52px;"`;
+  }
+
+  // Fallback / Standard report dynamic calculation
+  const numCols = 4;
+
+  // Initialize max length with the length of the headers
+  const maxLens = new Array(numCols).fill(0);
+  (headerLabels || []).forEach((label, i) => {
+    if (i < numCols)
+      maxLens[i] = Math.max(maxLens[i], String(label || "").length);
+  });
+
+  // Scan data
+  for (const l of locations) {
+    // 0: Current $
+    // 1: Prior 1 $
+    // 2: Prior 2 $
+    // 3: Prior 3 $
+    maxLens[0] = Math.max(
+      maxLens[0],
+      fmtMoney(l.ext_price_total_current).length,
+    );
+    maxLens[1] = Math.max(
+      maxLens[1],
+      fmtMoney(l.ext_price_total_prior1).length,
+    );
+    maxLens[2] = Math.max(
+      maxLens[2],
+      fmtMoney(l.ext_price_total_prior2).length,
+    );
+    maxLens[3] = Math.max(
+      maxLens[3],
+      fmtMoney(l.ext_price_total_prior3).length,
+    );
+  }
+
+  // Convert chars to px
+  const widths = maxLens.map((len) =>
+    Math.ceil(len * CHAR_WIDTH_PX + COL_PADDING_PX),
+  );
+
+  // Ensure minimum width (e.g. 50px) so headers don't squish too much if data is empty
+  const safeWidths = widths.map((w) => Math.max(w, 56));
+
+  const colsStr = safeWidths.map((w) => `${w}px`).join(" ");
+  return `style="padding:2px 6px; grid-template-columns: minmax(0, 1fr) ${colsStr};"`;
+}
+
+function renderBreakdown(bd, reportType, gridStyleOverride) {
   if (!bd || typeof bd !== "object") {
     return `<div class="muted">No breakdown available.</div>`;
   }
@@ -881,6 +948,13 @@ function renderBreakdown(bd, reportType) {
   const groups = Array.isArray(bd.groups) ? bd.groups : [];
   const categories = Array.isArray(bd.categories) ? bd.categories : [];
   const isScanReport = reportType === "scan_report";
+
+  // If no override passed, fallback to defaults (using tuned widths for scan_report)
+  const gridStyle =
+    gridStyleOverride ||
+    (isScanReport
+      ? 'style="padding:2px 6px; grid-template-columns: minmax(0, 1fr) 100px 100px 100px 72px 62px 62px 52px;"'
+      : 'style="padding:2px 6px;"');
 
   // Helper to generate the right columns based on type
   const renderCols = (item) => {
@@ -904,10 +978,6 @@ function renderBreakdown(bd, reportType) {
       `;
     }
   };
-
-  const gridStyle = isScanReport
-    ? 'style="padding:2px 6px; grid-template-columns: minmax(0, 1fr) repeat(7, 70px);"'
-    : 'style="padding:2px 6px;"';
 
   if (mode === "category_groups") {
     if (groups.length === 0)
@@ -2469,13 +2539,27 @@ async function loadAreaGroup(groupId, members) {
 
   let headerColumns, groupGrand;
 
+  // Gather all locations from all areas to calc widths globally
+  const allLocs = results.flatMap((r) =>
+    Array.isArray(r.data?.locations) ? r.data.locations : [],
+  );
+
+  let gridStyle = ""; // Will be computed
+
   if (isScanReport) {
     const col1 = fmtDateLabel(dates.current, "Current");
     const col2 = fmtDateLabel(dates.prior1, "Prior 1");
 
-    // Reduced column width to 70px to avoid horizontal scroll on tablets
-    const gridStyle =
-      'style="grid-template-columns: minmax(0, 1fr) repeat(7, 70px);"';
+    // Dynamic width calculation
+    gridStyle = calculateDynamicGrid(allLocs, "scan_report", [
+      col1,
+      col2,
+      "+/-",
+      "Pieces",
+      "Prior",
+      "+/-",
+      "SKUs",
+    ]);
 
     headerColumns = `
       <div class="report-grid" ${gridStyle} style="font-weight:700; font-size:17px;">
@@ -2498,8 +2582,16 @@ async function loadAreaGroup(groupId, members) {
     const col3 = fmtDateLabel(dates.prior2, "Prior 2");
     const col4 = fmtDateLabel(dates.prior3, "Prior 3");
 
+    // Dynamic width calculation
+    gridStyle = calculateDynamicGrid(allLocs, "standard", [
+      col1,
+      col2,
+      col3,
+      col4,
+    ]);
+
     headerColumns = `
-      <div class="report-grid" style="font-weight:700; font-size:17px;">
+      <div class="report-grid" ${gridStyle} style="font-weight:700; font-size:17px;">
         <div style="grid-column: 1 / span 1;"></div>
         <div class="num">${col1}</div>
         <div class="num">${col2}</div>
@@ -2535,9 +2627,6 @@ async function loadAreaGroup(groupId, members) {
       let rowsHtml;
 
       if (isScanReport) {
-        const gridStyle =
-          'style="grid-template-columns: minmax(0, 1fr) repeat(7, 70px);"';
-
         areaGrand = locs.reduce(
           (acc, l) => {
             acc.c += Number(l.ext_price_total_current || 0);
@@ -2599,6 +2688,7 @@ async function loadAreaGroup(groupId, members) {
                 ${priorBlock}${renderBreakdown(
                   l.report_breakdown,
                   "scan_report",
+                  gridStyle,
                 )}
               </div>
             </div>
@@ -2653,7 +2743,7 @@ async function loadAreaGroup(groupId, members) {
 
             return `
             <div class="report-block">
-              <div class="report-row report-grid report-main"
+              <div class="report-row report-grid report-main" ${gridStyle}
                    data-target="${id}"
                    data-file="${escapeHtml(meta.file)}"
                    data-area-num="${escapeHtml(data.area_num ?? "")}"
@@ -2670,7 +2760,7 @@ async function loadAreaGroup(groupId, members) {
               </div>
 
               <div id="${id}" class="report-indent" style="display:block;">
-                ${priorBlock}${renderBreakdown(l.report_breakdown)}
+                ${priorBlock}${renderBreakdown(l.report_breakdown, "standard", gridStyle)}
               </div>
             </div>
           `;
@@ -2679,7 +2769,7 @@ async function loadAreaGroup(groupId, members) {
 
         areaFooter = `
         <div style="border-top:1px solid #bbb; margin-top:6px;"></div>
-        <div class="report-grid" style="padding:8px 6px; font-weight:800; font-size:16px;">
+        <div class="report-grid" ${gridStyle} style="padding:8px 6px; font-weight:800; font-size:16px;">
           <div style="grid-column: 1 / span 1;">AREA TOTAL</div>
           <div class="num">${fmtMoney(areaGrand.c)}</div>
           <div class="num">${fmtMoney(areaGrand.p1)}</div>
@@ -2711,8 +2801,6 @@ async function loadAreaGroup(groupId, members) {
 
   let footerHtml;
   if (isScanReport) {
-    const gridStyle =
-      'style="grid-template-columns: minmax(0, 1fr) repeat(7, 70px);"';
     footerHtml = `
     <div class="report-footer">
       <div class="report-grid" ${gridStyle} style="font-size:16px;">
@@ -2730,7 +2818,7 @@ async function loadAreaGroup(groupId, members) {
   } else {
     footerHtml = `
     <div class="report-footer">
-      <div class="report-grid" style="font-size:16px;">
+      <div class="report-grid" ${gridStyle} style="font-size:16px;">
         <div style="grid-column: 1 / span 1; font-size:16px;">GROUP GRAND TOTAL</div>
         <div class="num">${fmtMoney(groupGrand.c)}</div>
         <div class="num">${fmtMoney(groupGrand.p1)}</div>
@@ -2846,21 +2934,28 @@ async function loadArea(file) {
 
   const dates = data.dates || {};
   let headerColumns, grand, rowsHtml;
+  let gridStyle = ""; // Computed dynamically
 
   if (isScanReport) {
     // 7 Columns for Scan Report
     const col1 = fmtDateLabel(dates.current, "Current");
     const col2 = fmtDateLabel(dates.prior1, "Prior 1");
 
-    // Override the grid template for this specific view (reduced column size)
-    const gridStyle =
-      'style="grid-template-columns: minmax(0, 1fr) repeat(7, 70px);"';
+    // Dynamic width calculation
+    gridStyle = calculateDynamicGrid(locs, "scan_report", [
+      col1,
+      col2,
+      "+/-",
+      "Pieces",
+      "Prior",
+      "+/-",
+      "SKUs",
+    ]);
 
     headerColumns = `
       <div class="report-grid" ${gridStyle} style="font-weight:700; font-size:17px;">
-        <div style="grid-column: 1 / span 1; font-size:22px;">
-          AREA <span class="mono">${escapeHtml(data.area_num ?? "")}</span>
-          &nbsp;&nbsp; ${escapeHtml(data.area_desc || "")}
+        <div style="grid-column: 1 / span 1; font-size:17px;">
+          ${escapeHtml(data.area_desc || "")}
         </div>
         <div class="num">${col1}</div>
         <div class="num">${col2}</div>
@@ -2933,7 +3028,7 @@ async function loadArea(file) {
           </div>
 
           <div id="${id}" class="report-indent" style="display:block;">
-            ${priorBlock}${renderBreakdown(l.report_breakdown, "scan_report")}
+            ${priorBlock}${renderBreakdown(l.report_breakdown, "scan_report", gridStyle)}
           </div>
         </div>
       `;
@@ -2946,11 +3041,18 @@ async function loadArea(file) {
     const col3 = fmtDateLabel(dates.prior2, "Prior 2");
     const col4 = fmtDateLabel(dates.prior3, "Prior 3");
 
+    // Dynamic width calculation
+    gridStyle = calculateDynamicGrid(locs, "standard", [
+      col1,
+      col2,
+      col3,
+      col4,
+    ]);
+
     headerColumns = `
-      <div class="report-grid" style="font-weight:700; font-size:17px;">
-        <div style="grid-column: 1 / span 1; font-size:22px;">
-          AREA <span class="mono">${escapeHtml(data.area_num ?? "")}</span>
-          &nbsp;&nbsp; ${escapeHtml(data.area_desc || "")}
+      <div class="report-grid" ${gridStyle} style="font-weight:700; font-size:17px;">
+        <div style="grid-column: 1 / span 1; font-size:17px;">
+          ${escapeHtml(data.area_desc || "")}
         </div>
         <div class="num">${col1}</div>
         <div class="num">${col2}</div>
@@ -2996,7 +3098,7 @@ async function loadArea(file) {
 
         return `
         <div class="report-block">
-          <div class="report-row report-grid report-main"
+          <div class="report-row report-grid report-main" ${gridStyle}
                data-target="${id}"
                data-file="${escapeHtml(file)}"
                data-area-num="${escapeHtml(data.area_num ?? "")}"
@@ -3013,7 +3115,7 @@ async function loadArea(file) {
           </div>
 
           <div id="${id}" class="report-indent" style="display:block;">
-            ${priorBlock}${renderBreakdown(l.report_breakdown)}
+            ${priorBlock}${renderBreakdown(l.report_breakdown, "standard", gridStyle)}
           </div>
         </div>
       `;
@@ -3033,8 +3135,6 @@ async function loadArea(file) {
 
   let footerHtml;
   if (isScanReport) {
-    const gridStyle =
-      'style="grid-template-columns: minmax(0, 1fr) repeat(7, 70px);"';
     footerHtml = `
       <div class="report-footer">
         <div class="report-grid" ${gridStyle} style="font-size:16px;">
@@ -3052,7 +3152,7 @@ async function loadArea(file) {
   } else {
     footerHtml = `
       <div class="report-footer">
-        <div class="report-grid" style="font-size:16px;">
+        <div class="report-grid" ${gridStyle} style="font-size:16px;">
           <div style="grid-column: 1 / span 1; font-size:16px;">GRAND TOTAL</div>
           <div class="num">${fmtMoney(grand.c)}</div>
           <div class="num">${fmtMoney(grand.p1)}</div>
