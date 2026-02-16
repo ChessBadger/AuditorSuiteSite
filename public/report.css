@@ -275,6 +275,36 @@ h1 {
   background: #e8f7ee;
   border: 1px solid #98d8b3;
 }
+.list li.recount-summary {
+  cursor: default;
+  padding-right: 14px;
+  border-left: 5px solid #607d8b;
+  background: #f4f7fa;
+}
+
+.list li.recount-summary:hover {
+  background: #f4f7fa;
+}
+
+.list li.recount-summary::after {
+  content: none;
+}
+
+.list li.recount-summary.recount-summary-low {
+  border-left-color: #8d6e63;
+  background: #fbf7f4;
+}
+
+.list li.recount-summary.recount-summary-mid {
+  border-left-color: #607d8b;
+  background: #f4f7fa;
+}
+
+.list li.recount-summary.recount-summary-high {
+  border-left-color: #607d8b;
+  background: #f4f7fa;
+}
+
 .list li::after {
   content: "›";
   position: absolute;
@@ -363,7 +393,13 @@ main.panel {
 
 /* Used when jumping to a recount location */
 .report-row.highlight {
-  background: #fff3bf;
+  background: #fff3bf !important;
+}
+
+.report-block.highlight-target > .report-row.report-main {
+  background: #ffef9c !important;
+  box-shadow: inset 4px 0 0 #f59e0b, inset 0 0 0 1px rgba(245, 158, 11, 0.35);
+  border-radius: 4px;
 }
 
 /* Temporary highlight when jumping to a location */

@@ -1618,28 +1618,74 @@ function extractQuestionLocations(reportJson, file) {
   return Array.from(bestByKey.values());
 }
 
-function jumpToLocationInView(loc_num) {
-  const target = String(loc_num ?? "");
-  if (!target) return;
+let persistentHighlightedRow = null;
+let persistentHighlightedBlock = null;
+
+function findLocationRowInView(loc_num) {
+  const want = normalizeLocKey(loc_num);
+  if (!want) return null;
 
   let row = content.querySelector(
-    `.report-row.report-main[data-loc-num="${CSS.escape(target)}"]`,
+    `.report-row.report-main[data-loc-key="${CSS.escape(want)}"]`,
   );
+  if (row) return row;
 
-  // Fallback for mismatched loc formatting (e.g. "23" vs "00023")
-  if (!row) {
-    const want = normalizeLocKey(target);
-    const rows = content.querySelectorAll(".report-row.report-main[data-loc-num]");
-    row = Array.from(rows).find((r) =>
-      normalizeLocKey(r.getAttribute("data-loc-num") || "") === want
+  const rows = content.querySelectorAll(".report-row.report-main[data-loc-num]");
+  row =
+    Array.from(rows).find(
+      (r) => normalizeLocKey(r.getAttribute("data-loc-num") || "") === want,
     ) || null;
-  }
+  if (row) return row;
 
-  if (!row) return;
+  // Final fallback: direct raw match against padded/unpadded forms.
+  const raw = String(loc_num ?? "").trim();
+  if (!raw) return null;
+  const pad5 = raw.replace(/\D+/g, "").padStart(5, "0");
+  return (
+    Array.from(rows).find((r) => {
+      const got = String(r.getAttribute("data-loc-num") || "").trim();
+      return got === raw || got === pad5;
+    }) || null
+  );
+}
 
-  row.classList.add("highlight");
-  row.scrollIntoView({ behavior: "smooth", block: "center" });
-  setTimeout(() => row.classList.remove("highlight"), 1600);
+function jumpToLocationInView(loc_num, opts = {}) {
+  const target = String(loc_num ?? "");
+  if (!target) return Promise.resolve(false);
+
+  const maxAttempts = Number(opts.maxAttempts ?? 12);
+  const retryDelayMs = Number(opts.retryDelayMs ?? 90);
+
+  return new Promise((resolve) => {
+    const attemptFind = (attempt) => {
+      const row = findLocationRowInView(target);
+      if (row) {
+        if (persistentHighlightedRow && persistentHighlightedRow !== row) {
+          persistentHighlightedRow.classList.remove("highlight");
+        }
+        const block = row.closest(".report-block");
+        if (persistentHighlightedBlock && persistentHighlightedBlock !== block) {
+          persistentHighlightedBlock.classList.remove("highlight-target");
+        }
+        persistentHighlightedRow = row;
+        persistentHighlightedBlock = block || null;
+        row.classList.add("highlight");
+        if (block) block.classList.add("highlight-target");
+        row.scrollIntoView({ behavior: "smooth", block: "center" });
+        resolve(true);
+        return;
+      }
+
+      if (attempt >= maxAttempts) {
+        resolve(false);
+        return;
+      }
+
+      setTimeout(() => attemptFind(attempt + 1), retryDelayMs);
+    };
+
+    requestAnimationFrame(() => attemptFind(1));
+  });
 }
 
 // --------------------
@@ -2968,6 +3014,60 @@ async function loadAreaList() {
       return;
     }
 
+    const rowsWithTotals = recountRows.filter(
+      (r) => r.old_total !== null && r.old_total !== undefined,
+    );
+
+    if (rowsWithTotals.length > 0) {
+      let netVariance = 0;
+      let noChangeCount = 0;
+      let oldTotalsBase = 0;
+
+      for (const r of rowsWithTotals) {
+        const newNum = Number(r.new_total);
+        const oldNum = Number(r.old_total);
+        if (!Number.isFinite(newNum) || !Number.isFinite(oldNum)) continue;
+        const delta = newNum - oldNum;
+        netVariance += delta;
+        oldTotalsBase += Math.abs(oldNum);
+        if (Math.abs(delta) < 0.0001) noChangeCount += 1;
+      }
+
+      const checkedCount = rowsWithTotals.length;
+      const noChangeRate = checkedCount > 0 ? noChangeCount / checkedCount : 0;
+
+      const netMagnitude = Math.abs(netVariance);
+      let summaryTone = "recount-summary-high";
+      let summaryHint = "Changes are being observed across recount results.";
+      if (netMagnitude < 10 || noChangeRate >= 0.7) {
+        summaryTone = "recount-summary-low";
+        summaryHint = "Overall change is low across recent recount results.";
+      } else if (netMagnitude < 40) {
+        summaryTone = "recount-summary-mid";
+        summaryHint = "Overall change is moderate across recent recount results.";
+      }
+
+      const summaryLi = document.createElement("li");
+      summaryLi.className = `recount-summary ${summaryTone}`;
+      const pctChanged = oldTotalsBase > 0
+        ? (netVariance / oldTotalsBase) * 100
+        : 0;
+      summaryLi.innerHTML = `
+        <div><strong>Recount Impact Summary</strong></div>
+        <div class="muted">
+          NET CHANGE: <strong>${escapeHtml(fmtMoney(netVariance))}</strong>
+          &nbsp;•&nbsp;
+          CHANGE %: <strong>${escapeHtml(pctChanged.toFixed(2))}%</strong>
+          &nbsp;•&nbsp;
+          CHECKED: <strong>${escapeHtml(String(checkedCount))}</strong>
+          &nbsp;•&nbsp;
+          NO CHANGE: <strong>${escapeHtml(String(noChangeCount))}</strong>
+        </div>
+        <div class="muted" style="margin-top:4px;">${escapeHtml(summaryHint)}</div>
+      `;
+      areaList.appendChild(summaryLi);
+    }
+
     for (const r of recountRows) {
       const li = document.createElement("li");
       const locLabel = String(r.loc_num || "").padStart(5, "0");
@@ -3716,6 +3816,7 @@ async function loadArea(file, options = {}) {
                data-area-num="${escapeHtml(data.area_num ?? "")}"
                data-area-desc="${escapeHtml(data.area_desc || "")}"
                data-loc-num="${escapeHtml(getLocNumValue(l))}"
+               data-loc-key="${escapeHtml(normalizeLocKey(getLocNumValue(l)))}"
                data-loc-desc="${escapeHtml(l.loc_desc || "")}"
                data-show-prior-desc="${showPrior ? "1" : "0"}"
                data-prior-desc="${escapeHtml(priorDesc || "")}"
@@ -3800,6 +3901,7 @@ async function loadArea(file, options = {}) {
                data-area-num="${escapeHtml(data.area_num ?? "")}"
                data-area-desc="${escapeHtml(data.area_desc || "")}"
                data-loc-num="${escapeHtml(getLocNumValue(l))}"
+               data-loc-key="${escapeHtml(normalizeLocKey(getLocNumValue(l)))}"
                data-loc-desc="${escapeHtml(l.loc_desc || "")}"
                data-show-prior-desc="${showPrior ? "1" : "0"}"
                data-prior-desc="${escapeHtml(priorDesc || "")}"
@@ -3879,9 +3981,7 @@ async function loadArea(file, options = {}) {
   wireToggleAllBreakdownsButton(content, reportTypeKey);
   applyBreakdownPreference(content, reportTypeKey);
 
-  if (jumpLocNum) {
-    requestAnimationFrame(() => jumpToLocationInView(jumpLocNum));
-  }
+  if (jumpLocNum) jumpToLocationInView(jumpLocNum);
 
   statusEl.textContent = `Loaded area ${data.area_num}`;
   document.getElementById("back-to-areas")?.addEventListener("click", async () => {
