@@ -1041,6 +1041,30 @@ main.panel {
   flex-shrink: 0;
 }
 
+.loc-indicator {
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  border-radius: 8px;
+  border: 1px solid #c8d0de;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  line-height: 1;
+  user-select: none;
+}
+
+.loc-indicator-prior {
+  background: #ffef9c;
+  color: #6b5900;
+}
+
+.loc-indicator-msg {
+  background: #cfeeff;
+  color: #0a3a5c;
+}
+
 .prior-desc-btn,
 .loc-msg-btn {
   width: 28px;

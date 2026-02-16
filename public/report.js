@@ -1423,6 +1423,37 @@ function renderActionModal() {
   subtitle.textContent = `AREA ${normalizeAreaNum(ctx.area_num)} • ${
     ctx.area_desc || ""
   }`;
+  const priorDesc = String(ctx.prior_desc || "").trim();
+  const locationMessage = String(ctx.location_message || "").trim();
+  const showPrior = String(ctx.show_prior_desc || "") === "1" &&
+    priorDesc.length > 0 &&
+    priorDesc !== String(ctx.loc_desc || "").trim();
+  const showMsg = locationMessage.length > 0;
+  const noteBlocks = [];
+  if (showPrior) {
+    noteBlocks.push(`
+      <div style="margin-bottom:8px;">
+        <div style="font-weight:700; margin-bottom:4px;">Prior Description</div>
+        <div class="loc-msg-body">${escapeHtml(priorDesc)}</div>
+      </div>
+    `);
+  }
+  if (showMsg) {
+    noteBlocks.push(`
+      <div>
+        <div style="font-weight:700; margin-bottom:4px;">Message</div>
+        <div class="loc-msg-body">${escapeHtml(locationMessage)}</div>
+      </div>
+    `);
+  }
+  const extraInfoHtml = noteBlocks.length > 0
+    ? `
+    <div style="margin-top:12px; border-top:1px dashed #d0d7e2; padding-top:10px;">
+      <div style="font-size:12px; font-weight:800; letter-spacing:0.02em; color:#5f6b7a; text-transform:uppercase; margin-bottom:6px;">Location Notes</div>
+      ${noteBlocks.join("")}
+    </div>
+  `
+    : "";
 
   if (modalState.step === "choose") {
     body.innerHTML = `
@@ -1437,6 +1468,7 @@ function renderActionModal() {
         <button id="lam-btn-recount" class="btn btn-primary" type="button">Recount</button>
         <button id="lam-btn-question" class="btn" type="button">Question</button>
       </div>
+      ${extraInfoHtml}
     `;
 
     footer.innerHTML = `
@@ -1456,6 +1488,7 @@ function renderActionModal() {
         <div class="muted" style="margin-bottom:6px;">Optional: add a reason (can be blank)</div>
         <textarea id="lam-reason" class="modal-textarea" rows="4" placeholder="Reason (optional)"></textarea>
       </div>
+      ${extraInfoHtml}
     `;
 
     footer.innerHTML = `
@@ -1482,6 +1515,7 @@ function renderActionModal() {
         <div class="muted" style="margin-bottom:6px;">Enter a message for this location</div>
         <textarea id="lam-question" class="modal-textarea" rows="5" placeholder="Type your question..."></textarea>
       </div>
+      ${extraInfoHtml}
     `;
 
     footer.innerHTML = `
@@ -1955,6 +1989,9 @@ function wireLocationRowClicks(root, viewContext) {
 
         const loc_num = row.getAttribute("data-loc-num") || "";
         const loc_desc = row.getAttribute("data-loc-desc") || "";
+        const prior_desc = row.getAttribute("data-prior-desc") || "";
+        const location_message = row.getAttribute("data-location-message") || "";
+        const show_prior_desc = row.getAttribute("data-show-prior-desc") || "";
 
         openActionModal({
           file,
@@ -1962,6 +1999,9 @@ function wireLocationRowClicks(root, viewContext) {
           area_desc,
           loc_num,
           loc_desc,
+          prior_desc,
+          location_message,
+          show_prior_desc,
         });
       });
     });
@@ -2825,15 +2865,14 @@ async function loadAreaGroup(groupId, members) {
             const id = `g-${escapeHtml(data.area_num ?? "area")}-loc-${idx}`;
             const priorDesc = getPriorLocDesc(l);
             const showPrior = l?.show_prior_loc_desc === true;
-            const priorBtn = showPrior
-              ? `<button class="prior-desc-btn" type="button" title="Show prior location description" data-prior-target="${id}-prior" data-prior-desc="${escapeHtml(
-                  priorDesc || "",
-                )}">↩</button>`
-              : "";
-            const priorBlock = showPrior
-              ? `<div id="${id}-prior" class="prior-desc" style="display:none;"></div>`
+            const priorIcon = showPrior
+              ? `<span class="loc-indicator loc-indicator-prior" title="Has prior location description" aria-hidden="true">↩</span>`
               : "";
             const disclosureBtn = `<button class="row-disclosure-btn" type="button" aria-expanded="false" aria-label="Expand category breakdown" title="Show category breakdown" data-target="${id}">▾</button>`;
+            const locMsg = getLocationMessage(l);
+            const msgIcon = locMsg
+              ? `<span class="loc-indicator loc-indicator-msg" title="Has location message" aria-hidden="true">📝</span>`
+              : "";
 
             return `
             <div class="report-block">
@@ -2843,9 +2882,12 @@ async function loadAreaGroup(groupId, members) {
                    data-area-num="${escapeHtml(data.area_num ?? "")}"
                    data-area-desc="${escapeHtml(data.area_desc || "")}"
                    data-loc-num="${escapeHtml(l.loc_num ?? "")}"
-                   data-loc-desc="${escapeHtml(l.loc_desc || "")}">
+                   data-loc-desc="${escapeHtml(l.loc_desc || "")}"
+                   data-show-prior-desc="${showPrior ? "1" : "0"}"
+                   data-prior-desc="${escapeHtml(priorDesc || "")}"
+                   data-location-message="${escapeHtml(locMsg || "")}">
                 
-                <div class="desc" title="${escapeHtml(l.loc_desc || "")}"><span class="desc-text">${escapeHtml(l.loc_desc || "")}</span><span class="loc-icon-row">${disclosureBtn}${priorBtn}</span></div>
+                <div class="desc" title="${escapeHtml(l.loc_desc || "")}"><span class="desc-text">${escapeHtml(l.loc_desc || "")}</span><span class="loc-icon-row">${disclosureBtn}${msgIcon}${priorIcon}</span></div>
 
                 <div class="num">${fmtMoney(l.ext_price_total_current)}</div>
                 <div class="num">${fmtMoney(l.ext_price_total_prior1)}</div>
@@ -2857,11 +2899,7 @@ async function loadAreaGroup(groupId, members) {
               </div>
 
               <div id="${id}" class="report-indent" hidden>
-                ${priorBlock}${renderBreakdown(
-                  l.report_breakdown,
-                  "scan_report",
-                  gridStyle,
-                )}
+                ${renderBreakdown(l.report_breakdown, "scan_report", gridStyle)}
               </div>
             </div>
           `;
@@ -2904,15 +2942,14 @@ async function loadAreaGroup(groupId, members) {
             const id = `g-${escapeHtml(data.area_num ?? "area")}-loc-${idx}`;
             const priorDesc = getPriorLocDesc(l);
             const showPrior = l?.show_prior_loc_desc === true;
-            const priorBtn = showPrior
-              ? `<button class="prior-desc-btn" type="button" title="Show prior location description" data-prior-target="${id}-prior" data-prior-desc="${escapeHtml(
-                  priorDesc || "",
-                )}">↩</button>`
-              : "";
-            const priorBlock = showPrior
-              ? `<div id="${id}-prior" class="prior-desc" style="display:none;"></div>`
+            const priorIcon = showPrior
+              ? `<span class="loc-indicator loc-indicator-prior" title="Has prior location description" aria-hidden="true">↩</span>`
               : "";
             const disclosureBtn = `<button class="row-disclosure-btn" type="button" aria-expanded="false" aria-label="Expand category breakdown" title="Show category breakdown" data-target="${id}">▾</button>`;
+            const locMsg = getLocationMessage(l);
+            const msgIcon = locMsg
+              ? `<span class="loc-indicator loc-indicator-msg" title="Has location message" aria-hidden="true">📝</span>`
+              : "";
 
             return `
             <div class="report-block">
@@ -2922,9 +2959,12 @@ async function loadAreaGroup(groupId, members) {
                    data-area-num="${escapeHtml(data.area_num ?? "")}"
                    data-area-desc="${escapeHtml(data.area_desc || "")}"
                    data-loc-num="${escapeHtml(l.loc_num ?? "")}"
-                   data-loc-desc="${escapeHtml(l.loc_desc || "")}">
+                   data-loc-desc="${escapeHtml(l.loc_desc || "")}"
+                   data-show-prior-desc="${showPrior ? "1" : "0"}"
+                   data-prior-desc="${escapeHtml(priorDesc || "")}"
+                   data-location-message="${escapeHtml(locMsg || "")}">
                 
-                <div class="desc" title="${escapeHtml(l.loc_desc || "")}"><span class="desc-text">${escapeHtml(l.loc_desc || "")}</span><span class="loc-icon-row">${disclosureBtn}${priorBtn}</span></div>
+                <div class="desc" title="${escapeHtml(l.loc_desc || "")}"><span class="desc-text">${escapeHtml(l.loc_desc || "")}</span><span class="loc-icon-row">${disclosureBtn}${msgIcon}${priorIcon}</span></div>
 
                 <div class="num">${fmtMoney(l.ext_price_total_current)}</div>
                 <div class="num">${fmtMoney(l.ext_price_total_prior1)}</div>
@@ -2933,7 +2973,7 @@ async function loadAreaGroup(groupId, members) {
               </div>
 
               <div id="${id}" class="report-indent" hidden>
-                ${priorBlock}${renderBreakdown(l.report_breakdown, "standard", gridStyle)}
+                ${renderBreakdown(l.report_breakdown, "standard", gridStyle)}
               </div>
             </div>
           `;
@@ -3016,7 +3056,6 @@ async function loadAreaGroup(groupId, members) {
   wireBreakdownDisclosureButtons(content, reportTypeKey);
   wireToggleAllBreakdownsButton(content, reportTypeKey);
   applyBreakdownPreference(content, reportTypeKey);
-  wirePriorDescButtons(content);
   statusEl.textContent = `Loaded group ${groupId}`;
 
   document.getElementById("back-to-areas")?.addEventListener("click", () => {
@@ -3165,24 +3204,14 @@ async function loadArea(file) {
         const id = `loc-${idx}`;
         const priorDesc = getPriorLocDesc(l);
         const showPrior = l?.show_prior_loc_desc === true;
-        const priorBtn = showPrior
-          ? `<button class="prior-desc-btn" type="button" title="Show prior location description" data-prior-target="${id}-prior" data-prior-desc="${escapeHtml(
-              priorDesc || "",
-            )}">↩</button>`
-          : "";
-        const priorBlock = showPrior
-          ? `<div id="${id}-prior" class="prior-desc" style="display:none;"></div>`
+        const priorIcon = showPrior
+          ? `<span class="loc-indicator loc-indicator-prior" title="Has prior location description" aria-hidden="true">↩</span>`
           : "";
         const disclosureBtn = `<button class="row-disclosure-btn" type="button" aria-expanded="false" aria-label="Expand category breakdown" title="Show category breakdown" data-target="${id}">▾</button>`;
 
         const locMsg = getLocationMessage(l);
-        const msgBtn = locMsg
-          ? `<button class="loc-msg-btn" type="button" title="View location message"
-              data-msg="${escapeHtml(locMsg)}"
-              data-area-num="${escapeHtml(data.area_num ?? "")}"
-              data-area-desc="${escapeHtml(data.area_desc || "")}"
-              data-loc-num="${escapeHtml(l.loc_num ?? "")}"
-              data-loc-desc="${escapeHtml(l.loc_desc || "")}">📝</button>`
+        const msgIcon = locMsg
+          ? `<span class="loc-indicator loc-indicator-msg" title="Has location message" aria-hidden="true">📝</span>`
           : "";
 
         return `
@@ -3193,9 +3222,12 @@ async function loadArea(file) {
                data-area-num="${escapeHtml(data.area_num ?? "")}"
                data-area-desc="${escapeHtml(data.area_desc || "")}"
                data-loc-num="${escapeHtml(l.loc_num ?? "")}"
-               data-loc-desc="${escapeHtml(l.loc_desc || "")}">
+               data-loc-desc="${escapeHtml(l.loc_desc || "")}"
+               data-show-prior-desc="${showPrior ? "1" : "0"}"
+               data-prior-desc="${escapeHtml(priorDesc || "")}"
+               data-location-message="${escapeHtml(locMsg || "")}">
             
-            <div class="desc" title="${escapeHtml(l.loc_desc || "")}"><span class="desc-text">${escapeHtml(l.loc_desc || "")}</span><span class="loc-icon-row">${disclosureBtn}${msgBtn}${priorBtn}</span></div>
+            <div class="desc" title="${escapeHtml(l.loc_desc || "")}"><span class="desc-text">${escapeHtml(l.loc_desc || "")}</span><span class="loc-icon-row">${disclosureBtn}${msgIcon}${priorIcon}</span></div>
 
             <div class="num">${fmtMoney(l.ext_price_total_current)}</div>
             <div class="num">${fmtMoney(l.ext_price_total_prior1)}</div>
@@ -3207,7 +3239,7 @@ async function loadArea(file) {
           </div>
 
           <div id="${id}" class="report-indent" hidden>
-            ${priorBlock}${renderBreakdown(l.report_breakdown, "scan_report", gridStyle)}
+            ${renderBreakdown(l.report_breakdown, "scan_report", gridStyle)}
           </div>
         </div>
       `;
@@ -3256,24 +3288,14 @@ async function loadArea(file) {
         const id = `loc-${idx}`;
         const priorDesc = getPriorLocDesc(l);
         const showPrior = l?.show_prior_loc_desc === true;
-        const priorBtn = showPrior
-          ? `<button class="prior-desc-btn" type="button" title="Show prior location description" data-prior-target="${id}-prior" data-prior-desc="${escapeHtml(
-              priorDesc || "",
-            )}">↩</button>`
-          : "";
-        const priorBlock = showPrior
-          ? `<div id="${id}-prior" class="prior-desc" style="display:none;"></div>`
+        const priorIcon = showPrior
+          ? `<span class="loc-indicator loc-indicator-prior" title="Has prior location description" aria-hidden="true">↩</span>`
           : "";
         const disclosureBtn = `<button class="row-disclosure-btn" type="button" aria-expanded="false" aria-label="Expand category breakdown" title="Show category breakdown" data-target="${id}">▾</button>`;
 
         const locMsg = getLocationMessage(l);
-        const msgBtn = locMsg
-          ? `<button class="loc-msg-btn" type="button" title="View location message"
-              data-msg="${escapeHtml(locMsg)}"
-              data-area-num="${escapeHtml(data.area_num ?? "")}"
-              data-area-desc="${escapeHtml(data.area_desc || "")}"
-              data-loc-num="${escapeHtml(l.loc_num ?? "")}"
-              data-loc-desc="${escapeHtml(l.loc_desc || "")}">📝</button>`
+        const msgIcon = locMsg
+          ? `<span class="loc-indicator loc-indicator-msg" title="Has location message" aria-hidden="true">📝</span>`
           : "";
 
         return `
@@ -3284,9 +3306,12 @@ async function loadArea(file) {
                data-area-num="${escapeHtml(data.area_num ?? "")}"
                data-area-desc="${escapeHtml(data.area_desc || "")}"
                data-loc-num="${escapeHtml(l.loc_num ?? "")}"
-               data-loc-desc="${escapeHtml(l.loc_desc || "")}">
+               data-loc-desc="${escapeHtml(l.loc_desc || "")}"
+               data-show-prior-desc="${showPrior ? "1" : "0"}"
+               data-prior-desc="${escapeHtml(priorDesc || "")}"
+               data-location-message="${escapeHtml(locMsg || "")}">
             
-            <div class="desc" title="${escapeHtml(l.loc_desc || "")}"><span class="desc-text">${escapeHtml(l.loc_desc || "")}</span><span class="loc-icon-row">${disclosureBtn}${msgBtn}${priorBtn}</span></div>
+            <div class="desc" title="${escapeHtml(l.loc_desc || "")}"><span class="desc-text">${escapeHtml(l.loc_desc || "")}</span><span class="loc-icon-row">${disclosureBtn}${msgIcon}${priorIcon}</span></div>
 
             <div class="num">${fmtMoney(l.ext_price_total_current)}</div>
             <div class="num">${fmtMoney(l.ext_price_total_prior1)}</div>
@@ -3295,7 +3320,7 @@ async function loadArea(file) {
           </div>
 
           <div id="${id}" class="report-indent" hidden>
-            ${priorBlock}${renderBreakdown(l.report_breakdown, "standard", gridStyle)}
+            ${renderBreakdown(l.report_breakdown, "standard", gridStyle)}
           </div>
         </div>
       `;
@@ -3358,8 +3383,6 @@ async function loadArea(file) {
   wireBreakdownDisclosureButtons(content, reportTypeKey);
   wireToggleAllBreakdownsButton(content, reportTypeKey);
   applyBreakdownPreference(content, reportTypeKey);
-  wirePriorDescButtons(content);
-  wireLocationMessageButtons(content);
 
   statusEl.textContent = `Loaded area ${data.area_num}`;
 
