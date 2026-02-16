@@ -250,6 +250,31 @@ h1 {
   background: rgba(15, 23, 42, 0.06);
   border: 1px solid rgba(15, 23, 42, 0.12);
 }
+
+.recount-total-new {
+  color: #0f5132;
+  background: #e8f7ee;
+  border-color: #98d8b3;
+}
+
+.recount-total-old {
+  color: #842029;
+  background: #fdecef;
+  border-color: #efb5bc;
+}
+
+.recount-no-change {
+  margin-top: 4px;
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  color: #0f5132;
+  background: #e8f7ee;
+  border: 1px solid #98d8b3;
+}
 .list li::after {
   content: "›";
   position: absolute;

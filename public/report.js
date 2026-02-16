@@ -32,10 +32,14 @@ const CACHE_KEYS = {
 const SEEN_KEYS = {
   CHAT_LAST_SEEN_MS: `${CACHE_NS}:SEEN_CHAT_LAST_SEEN_MS`,
   QUESTIONS_REPLY_LAST_SEEN_MS: `${CACHE_NS}:SEEN_QUESTIONS_REPLY_LAST_SEEN_MS`,
+  RECOUNTS_LAST_SEEN_MS: `${CACHE_NS}:SEEN_RECOUNTS_LAST_SEEN_MS`,
+  RECOUNTS_RESULTS_SEEN_KEYS: `${CACHE_NS}:SEEN_RECOUNTS_RESULTS_KEYS`,
 };
 
 let latestChatMsgMs = 0;
 let latestQuestionsReplyMs = 0;
+let latestRecountMs = 0;
+let latestRecountResultKeys = new Set();
 let latestReviewMs = 0;
 
 const AGING_KEYS = {
@@ -321,6 +325,67 @@ function computeLatestQuestionsReplyMs(enriched) {
   return max;
 }
 
+function computeLatestRecountMs(enriched) {
+  let max = 0;
+  for (const e of enriched || []) {
+    const rs = Array.isArray(e?.recounts) ? e.recounts : [];
+    for (const r of rs) {
+      const ms = toMs(r?.timestamp ?? r?.ts ?? "");
+      if (ms > max) max = ms;
+    }
+  }
+  return max;
+}
+
+function normalizeRecountTotalKey(v) {
+  if (v === null || v === undefined || v === "") return "";
+  const n = Number(v);
+  if (Number.isFinite(n)) return n.toFixed(2);
+  return String(v).trim();
+}
+
+function computeRecountResultKeys(enriched) {
+  const out = new Set();
+
+  for (const e of enriched || []) {
+    const rs = Array.isArray(e?.recounts) ? e.recounts : [];
+    for (const r of rs) {
+      const hasOldTotal = r?.old_total !== null && r?.old_total !== undefined;
+      if (!hasOldTotal) continue;
+
+      const file = String(r?.file || e?.file || "").trim();
+      const loc = normalizeLocKey(r?.loc_num ?? "");
+      if (!file || !loc) continue;
+
+      const oldKey = normalizeRecountTotalKey(r?.old_total);
+      const newKey = normalizeRecountTotalKey(r?.new_total);
+      out.add(`${file}::${loc}::${oldKey}::${newKey}`);
+    }
+  }
+
+  return out;
+}
+
+function getSeenRecountResultKeys() {
+  try {
+    const raw = localStorage.getItem(SEEN_KEYS.RECOUNTS_RESULTS_SEEN_KEYS);
+    const arr = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(arr)) return new Set();
+    return new Set(arr.map((v) => String(v)));
+  } catch {
+    return new Set();
+  }
+}
+
+function setSeenRecountResultKeys(keysSet) {
+  try {
+    const arr = Array.from(keysSet || []).map((v) => String(v));
+    localStorage.setItem(SEEN_KEYS.RECOUNTS_RESULTS_SEEN_KEYS, JSON.stringify(arr));
+  } catch {
+    // best-effort
+  }
+}
+
 async function refreshChatNotification() {
   try {
     const out = await fetchJsonWithCache("/api/chatlog", CACHE_KEYS.CHAT);
@@ -347,9 +412,30 @@ function refreshQuestionsNotification() {
   );
 }
 
+function refreshRecountsNotification() {
+  const seenKeys = getSeenRecountResultKeys();
+  let hasUnseen = false;
+  for (const k of latestRecountResultKeys) {
+    if (!seenKeys.has(k)) {
+      hasUnseen = true;
+      break;
+    }
+  }
+  setNotif(
+    tabRecountsBtn,
+    hasUnseen && currentTab !== TABS.RECOUNTS,
+  );
+}
+
 function markQuestionsRepliesSeen() {
   setSeenMs(SEEN_KEYS.QUESTIONS_REPLY_LAST_SEEN_MS, latestQuestionsReplyMs);
   setNotif(tabQuestionsBtn, false);
+}
+
+function markRecountsSeen() {
+  setSeenRecountResultKeys(latestRecountResultKeys);
+  setSeenMs(SEEN_KEYS.RECOUNTS_LAST_SEEN_MS, latestRecountMs);
+  setNotif(tabRecountsBtn, false);
 }
 
 function markChatSeen() {
@@ -946,8 +1032,16 @@ function setActiveTab(tab) {
   }
 
   // Keep notification dots in sync when switching tabs.
+  refreshRecountsNotification();
   refreshQuestionsNotification();
   refreshChatNotification();
+}
+
+function returnToToReviewList() {
+  const wasListView = currentView.type === "list";
+  setSplitMode("list");
+  setActiveTab(TABS.TO_REVIEW);
+  if (!wasListView) loadAreaList();
 }
 
 // --------------------
@@ -1231,6 +1325,8 @@ function extractRecountLocations(reportJson, file) {
 
   const getActionText = (a) =>
     a && typeof a === "object" ? String(a.text || a.reason || "") : "";
+  const getActionTs = (a) =>
+    a && typeof a === "object" ? String(a.timestamp ?? a.ts ?? "") : "";
 
   const getLocNum = (loc) => getLocNumValue(loc);
   const findLocByNum = (locNum) =>
@@ -1253,6 +1349,7 @@ function extractRecountLocations(reportJson, file) {
       loc_num: getLocNum(match) || String(a?.loc_num ?? a?.LOC_NUM ?? ""),
       loc_desc: match?.loc_desc || "",
       reason: getActionText(a),
+      timestamp: getActionTs(a),
       ...getRecountTotals(match),
     });
   }
@@ -1275,6 +1372,7 @@ function extractRecountLocations(reportJson, file) {
         loc_num: getLocNum(match) || String(a?.loc_num ?? a?.LOC_NUM ?? ""),
         loc_desc: match?.loc_desc || "",
         reason: getActionText(a),
+        timestamp: getActionTs(a),
         ...getRecountTotals(match),
       });
     }
@@ -1330,6 +1428,30 @@ function extractRecountLocations(reportJson, file) {
     return "";
   };
 
+  const recountAction = (loc) => {
+    if (!loc || typeof loc !== "object") return null;
+
+    const one = loc.location_action || loc.locationAction;
+    const actions =
+      loc.actions ||
+      loc.location_actions ||
+      loc.locationActions ||
+      (Array.isArray(loc.location_action) ? loc.location_action : null) ||
+      null;
+
+    if (Array.isArray(actions)) {
+      const candidates = actions.filter(isRecountAction);
+      if (candidates.length > 0) {
+        return candidates
+          .slice()
+          .sort((a, b) => String(getActionTs(a)).localeCompare(String(getActionTs(b))))
+          .pop();
+      }
+    }
+
+    return isRecountAction(one) ? one : null;
+  };
+
   const perLocRows = locs.filter(isRecountFlag).map((l) => ({
     file,
     area_num,
@@ -1337,20 +1459,27 @@ function extractRecountLocations(reportJson, file) {
     loc_num: getLocNum(l),
     loc_desc: l.loc_desc || "",
     reason: recountReason(l),
+    timestamp: getActionTs(recountAction(l)),
     ...getRecountTotals(l),
   }));
 
   // 3) merge + dedupe
   const all = [...topRows, ...perLocRows];
-  const seen = new Set();
-  const out = [];
+  const bestByKey = new Map();
   for (const r of all) {
     const key = `${String(r.area_num || "")}::${String(r.loc_num || "")}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(r);
+    const prev = bestByKey.get(key);
+    if (!prev) {
+      bestByKey.set(key, r);
+      continue;
+    }
+
+    const a = String(prev.timestamp || "");
+    const b = String(r.timestamp || "");
+    if (b && (!a || b.localeCompare(a) > 0)) bestByKey.set(key, r);
+    else if (!a && !b) bestByKey.set(key, r);
   }
-  return out;
+  return Array.from(bestByKey.values());
 }
 
 function extractQuestionLocations(reportJson, file) {
@@ -1548,9 +1677,6 @@ function ensureActionModal() {
   document
     .getElementById("lam-close")
     .addEventListener("click", closeActionModal);
-  document.getElementById("loc-action-modal").addEventListener("click", (e) => {
-    if (e.target && e.target.id === "loc-action-modal") closeActionModal();
-  });
 
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && modalState.open) closeActionModal();
@@ -1764,6 +1890,23 @@ async function submitLocationAction({ action, text }) {
             text: normalizedText,
             timestamp: payload.timestamp,
           });
+
+          // Mirror onto the location record so location-level action state is
+          // immediately visible and remains present in area JSON.
+          const locs = Array.isArray(data.locations) ? data.locations : [];
+          const wanted = normalizeLocKey(ctx.loc_num);
+          const match = locs.find((l) => normalizeLocKey(getLocNumValue(l)) === wanted);
+          if (match && typeof match === "object") {
+            match.action = action;
+            if (!Array.isArray(match.actions)) match.actions = [];
+            match.actions.push({
+              area_num: ctx.area_num,
+              loc_num: ctx.loc_num,
+              action,
+              text: normalizedText,
+              timestamp: payload.timestamp,
+            });
+          }
         });
       },
     });
@@ -1775,6 +1918,8 @@ async function submitLocationAction({ action, text }) {
         ctx.loc_num,
       ).padStart(5, "0")}.`;
     }
+
+    if (action === "recount") refreshRecountsNotification();
 
     closeActionModal();
 
@@ -1884,10 +2029,6 @@ function ensureLocationMessageModal() {
 
   document.getElementById("lmm-close").addEventListener("click", close);
   document.getElementById("lmm-ok").addEventListener("click", close);
-
-  document.getElementById("loc-msg-modal").addEventListener("click", (e) => {
-    if (e.target && e.target.id === "loc-msg-modal") close();
-  });
 
   document.addEventListener("keydown", (e) => {
     const m = document.getElementById("loc-msg-modal");
@@ -2188,16 +2329,11 @@ function promptMarkReviewedBeforeClose() {
       if (e.key === "Escape") finalize(false);
     };
 
-    const onBackdrop = (e) => {
-      if (e.target && e.target.id === "review-close-modal") finalize(false);
-    };
-
     const finalize = (val) => {
       modal.style.display = "none";
       btnX.removeEventListener("click", onX);
       btnSkip.removeEventListener("click", onSkip);
       btnMark.removeEventListener("click", onMark);
-      modal.removeEventListener("click", onBackdrop);
       document.removeEventListener("keydown", onEsc);
       resolve(val);
     };
@@ -2209,7 +2345,6 @@ function promptMarkReviewedBeforeClose() {
     btnX.addEventListener("click", onX);
     btnSkip.addEventListener("click", onSkip);
     btnMark.addEventListener("click", onMark);
-    modal.addEventListener("click", onBackdrop);
     document.addEventListener("keydown", onEsc);
 
     modal.style.display = "flex";
@@ -2460,9 +2595,6 @@ function ensureChatModal() {
   const close = () => closeChatModal();
 
   document.getElementById("chat-close").addEventListener("click", close);
-  document.getElementById("chatlog-modal").addEventListener("click", (e) => {
-    if (e.target && e.target.id === "chatlog-modal") close();
-  });
 
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && chatState.open) close();
@@ -2778,6 +2910,8 @@ async function loadAreaList() {
   renderLastReviewAge();
 
   // Update notification state (new replies / new chat)
+  latestRecountMs = computeLatestRecountMs(enriched);
+  latestRecountResultKeys = computeRecountResultKeys(enriched);
   latestQuestionsReplyMs = computeLatestQuestionsReplyMs(enriched);
 
   // If the user is on the Questions tab, those replies are now "seen".
@@ -2785,6 +2919,11 @@ async function loadAreaList() {
     markQuestionsRepliesSeen();
   } else {
     refreshQuestionsNotification();
+  }
+  if (currentTab === TABS.RECOUNTS) {
+    markRecountsSeen();
+  } else {
+    refreshRecountsNotification();
   }
 
   refreshChatNotification();
@@ -2836,6 +2975,12 @@ async function loadAreaList() {
       const hasOldTotal = r.old_total !== null && r.old_total !== undefined;
       const newTotal = fmtMoney(r.new_total);
       const oldTotal = fmtMoney(r.old_total);
+      const newNum = Number(r.new_total);
+      const oldNum = Number(r.old_total);
+      const totalsSame = hasOldTotal &&
+        Number.isFinite(newNum) &&
+        Number.isFinite(oldNum) &&
+        Math.abs(newNum - oldNum) < 0.0001;
 
       li.innerHTML = `
         <div><strong>LOC ${escapeHtml(locLabel)} — ${escapeHtml(
@@ -2847,8 +2992,10 @@ async function loadAreaList() {
         ${reason ? `<div class="muted">${escapeHtml(reason)}</div>` : ""}
         ${
           hasOldTotal
-            ? `<div class="recount-total-line">NEW TOTAL: ${escapeHtml(newTotal || "0.00")}</div>
-               <div class="recount-total-line">OLD TOTAL: ${escapeHtml(oldTotal || "0.00")}</div>`
+            ? totalsSame
+              ? `<div class="recount-no-change">No changes from recount</div>`
+              : `<div class="recount-total-line recount-total-new">NEW TOTAL: ${escapeHtml(newTotal || "0.00")}</div>
+                 <div class="recount-total-line recount-total-old">OLD TOTAL: ${escapeHtml(oldTotal || "0.00")}</div>`
             : ""
         }
       `;
@@ -3033,6 +3180,11 @@ async function loadAreaList() {
       ...visibleGroups.map(([gid, members]) => renderGroupItem(gid, members)),
       ...visibleSingles.map((item) => renderSingleItem(item)),
     ];
+
+    if (merged.length === 0) {
+      areaList.innerHTML = `<li class="muted">You're all caught up. No areas to review.</li>`;
+      return;
+    }
 
     merged.sort((a, b) => {
       const byAge = a.sortMs - b.sortMs; // oldest first
@@ -3441,6 +3593,7 @@ async function loadAreaGroup(groupId, members) {
           latestReviewMs = toMs(reviewed_at) || Date.now();
           renderLastReviewAge();
           statusEl.textContent = "Marked group as reviewed.";
+          returnToToReviewList();
         } catch (e) {
           console.error(e);
           markBtn.disabled = false;
@@ -3731,15 +3884,12 @@ async function loadArea(file, options = {}) {
   }
 
   statusEl.textContent = `Loaded area ${data.area_num}`;
-  let closeAfterMark = false;
-
   document.getElementById("back-to-areas")?.addEventListener("click", async () => {
     if (data.reviewed !== true) {
       const shouldMark = await promptMarkReviewedBeforeClose();
       if (shouldMark) {
         const markBtn = document.getElementById("mark-reviewed");
         if (markBtn && !markBtn.disabled) {
-          closeAfterMark = true;
           markBtn.click();
           return;
         }
@@ -3783,14 +3933,9 @@ async function loadArea(file, options = {}) {
           latestReviewMs = toMs(reviewed_at) || Date.now();
           renderLastReviewAge();
           statusEl.textContent = "Marked reviewed.";
-          if (closeAfterMark) {
-            closeAfterMark = false;
-            setSplitMode("list");
-            loadAreaList();
-          }
+          returnToToReviewList();
         } catch (e) {
           console.error(e);
-          closeAfterMark = false;
           markBtn.disabled = false;
           alert(`Could not Mark Reviewed: ${e.message || e}`);
           statusEl.textContent = "Mark Reviewed failed.";
@@ -3800,7 +3945,7 @@ async function loadArea(file, options = {}) {
   }
 }
 
-refreshBtn?.addEventListener("click", loadAreaList);
+refreshBtn?.addEventListener("click", returnToToReviewList);
 
 tabToReviewBtn?.addEventListener("click", () => setActiveTab(TABS.TO_REVIEW));
 tabReviewedBtn?.addEventListener("click", () => setActiveTab(TABS.REVIEWED));

@@ -38,6 +38,7 @@ const LOCATION_ACTIONS_FILE = path.join(REPORT_DIR, "location_actions.json");
 //   ]
 // }
 let locationActionsStore = {};
+let locationActionsStoreMtimeMs = -1;
 
 function normalizeJsonText(raw) {
   return String(raw || "")
@@ -55,7 +56,7 @@ function loadLocationActionsFromDisk() {
   try {
     if (!fs.existsSync(LOCATION_ACTIONS_FILE)) {
       locationActionsStore = {};
-      saveLocationActionsToDisk();
+      locationActionsStoreMtimeMs = -1;
       return;
     }
     const raw = normalizeJsonText(
@@ -63,19 +64,21 @@ function loadLocationActionsFromDisk() {
     );
     if (!raw) {
       locationActionsStore = {};
-      saveLocationActionsToDisk();
+      locationActionsStoreMtimeMs = fs.statSync(LOCATION_ACTIONS_FILE).mtimeMs;
       return;
     }
     const parsed = JSON.parse(raw);
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
       locationActionsStore = parsed;
+      locationActionsStoreMtimeMs = fs.statSync(LOCATION_ACTIONS_FILE).mtimeMs;
     } else {
       locationActionsStore = {};
-      saveLocationActionsToDisk();
+      locationActionsStoreMtimeMs = fs.statSync(LOCATION_ACTIONS_FILE).mtimeMs;
     }
   } catch (e) {
     console.warn("Failed to load location_actions.json:", e.message);
     locationActionsStore = {};
+    locationActionsStoreMtimeMs = -1;
   }
 }
 
@@ -83,14 +86,43 @@ function saveLocationActionsToDisk() {
   const tmp = LOCATION_ACTIONS_FILE + ".tmp";
   fs.writeFileSync(tmp, JSON.stringify(locationActionsStore, null, 2), "utf8");
   fs.renameSync(tmp, LOCATION_ACTIONS_FILE);
+  try {
+    locationActionsStoreMtimeMs = fs.statSync(LOCATION_ACTIONS_FILE).mtimeMs;
+  } catch {
+    locationActionsStoreMtimeMs = Date.now();
+  }
+}
+
+function syncLocationActionsStoreFromDiskIfChanged() {
+  let diskMtimeMs = -1;
+  try {
+    if (fs.existsSync(LOCATION_ACTIONS_FILE)) {
+      diskMtimeMs = fs.statSync(LOCATION_ACTIONS_FILE).mtimeMs;
+    }
+  } catch {
+    diskMtimeMs = -1;
+  }
+
+  if (diskMtimeMs < 0) {
+    if (Object.keys(locationActionsStore).length > 0) {
+      locationActionsStore = {};
+    }
+    locationActionsStoreMtimeMs = -1;
+    return;
+  }
+
+  if (locationActionsStoreMtimeMs === diskMtimeMs) return;
+  loadLocationActionsFromDisk();
 }
 
 function getStoredActionsForFile(file) {
+  syncLocationActionsStoreFromDiskIfChanged();
   const arr = locationActionsStore[file];
   return Array.isArray(arr) ? arr : [];
 }
 
-function mergeLocationActions(baseArr, storedArr) {
+function mergeLocationActions(baseArr, storedArr, opts = {}) {
+  const minTimestampMs = Number(opts.minTimestampMs || 0);
   // Dedupe by (loc_num, action, timestamp, text) while preserving reply fields.
   // Important: If a later version of the same action gains a reply, we must
   // keep that reply so the UI can show it under the Questions tab.
@@ -124,6 +156,13 @@ function mergeLocationActions(baseArr, storedArr) {
   const add = (a) => {
     const n = norm(a);
     if (!n) return;
+
+    // Optional freshness guard: ignore actions older than the export file.
+    if (minTimestampMs > 0) {
+      const tsMs = Date.parse(String(n.timestamp || ""));
+      if (!Number.isFinite(tsMs) || tsMs < minTimestampMs) return;
+    }
+
     const key = `${n.loc_num}::${n.action}::${n.timestamp}::${n.text}`;
     const prev = map.get(key);
 
@@ -613,12 +652,12 @@ app.get("/api/report-exports/:file", (req, res) => {
   // clone so we don't permanently mutate the cached base export object
   const out = JSON.parse(JSON.stringify(base));
 
-  const baseActions = Array.isArray(out.location_actions)
-    ? out.location_actions
-    : [];
   const stored = getStoredActionsForFile(file);
 
-  out.location_actions = mergeLocationActions(baseActions, stored);
+  // Use the dedicated actions store as source-of-truth.
+  // This keeps area export files immutable and allows a true reset by
+  // clearing/deleting location_actions.json.
+  out.location_actions = mergeLocationActions([], stored);
 
   res.json(out);
 });
@@ -632,7 +671,7 @@ app.post("/api/report-exports/:file/location-action", (req, res) => {
     return res.status(404).json({ error: "Report export not found" });
   }
 
-  const { area_num, loc_num, action, text, timestamp } = req.body;
+  const { area_num, loc_num, action, text } = req.body;
 
   const locNumStr = String(loc_num ?? "").trim();
   const actionStr = String(action ?? "")
@@ -652,10 +691,13 @@ app.post("/api/report-exports/:file/location-action", (req, res) => {
     loc_num: locNumStr,
     action: actionStr,
     text: String(text ?? ""),
-    timestamp: String(timestamp ?? "").trim() || new Date().toISOString(),
+    // Use server timestamp so ordering/freshness is stable regardless of
+    // client device clock drift.
+    timestamp: new Date().toISOString(),
   };
 
   // 1) Persist into the dedicated store (survives restarts / export regeneration)
+  syncLocationActionsStoreFromDiskIfChanged();
   if (!Array.isArray(locationActionsStore[file]))
     locationActionsStore[file] = [];
   locationActionsStore[file].push(actionObj);
@@ -671,11 +713,32 @@ app.post("/api/report-exports/:file/location-action", (req, res) => {
     return res.status(500).json({ error: err.message });
   }
 
-  // 2) Also update the cached export object so UI sees it immediately
+  // 2) Also update the cached export object so area JSON reflects the action.
   if (!Array.isArray(data.location_actions)) data.location_actions = [];
   data.location_actions.push(actionObj);
 
-  // 3) Write back the export file atomically (best-effort redundancy)
+  // 2b) Mirror onto the specific location entry.
+  const locs = Array.isArray(data.locations) ? data.locations : [];
+  const normLoc = (v) =>
+    String(v ?? "")
+      .trim()
+      .replace(/,/g, "")
+      .replace(/\.0+$/, "")
+      .replace(/^0+(\d)/, "$1");
+  const wanted = normLoc(locNumStr);
+  const targetLoc = locs.find((l) => {
+    if (!l || typeof l !== "object") return false;
+    const locKey = normLoc(l.loc_num ?? l.LOC_NUM ?? l.locNum ?? "");
+    return locKey === wanted;
+  });
+
+  if (targetLoc && typeof targetLoc === "object") {
+    targetLoc.action = actionStr;
+    if (!Array.isArray(targetLoc.actions)) targetLoc.actions = [];
+    targetLoc.actions.push(actionObj);
+  }
+
+  // 3) Write back the export file atomically.
   const filePath = path.join(REPORT_DIR, file);
   try {
     const tmpPath = filePath + ".tmp";
