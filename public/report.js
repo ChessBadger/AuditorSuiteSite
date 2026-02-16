@@ -36,10 +36,143 @@ const SEEN_KEYS = {
 
 let latestChatMsgMs = 0;
 let latestQuestionsReplyMs = 0;
+let latestReviewMs = 0;
+
+const AGING_KEYS = {
+  UNREVIEWED_FIRST_SEEN_BY_FILE: `${CACHE_NS}:UNREVIEWED_FIRST_SEEN_BY_FILE`,
+};
+
+let unreviewedFirstSeenByFile = loadUnreviewedFirstSeenMap();
 
 function toMs(ts) {
   const n = Date.parse(String(ts || ""));
   return Number.isFinite(n) ? n : 0;
+}
+
+function loadUnreviewedFirstSeenMap() {
+  try {
+    const raw = localStorage.getItem(AGING_KEYS.UNREVIEWED_FIRST_SEEN_BY_FILE);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function persistUnreviewedFirstSeenMap() {
+  try {
+    localStorage.setItem(
+      AGING_KEYS.UNREVIEWED_FIRST_SEEN_BY_FILE,
+      JSON.stringify(unreviewedFirstSeenByFile),
+    );
+  } catch (e) {
+    console.warn("persistUnreviewedFirstSeenMap failed", e);
+  }
+}
+
+function syncUnreviewedFirstSeen(enriched, nowMs = Date.now()) {
+  const filesNow = new Set();
+  let changed = false;
+
+  for (const e of enriched || []) {
+    const file = String(e?.file || "");
+    if (!file) continue;
+    filesNow.add(file);
+
+    if (e.reviewed === true) {
+      if (Object.prototype.hasOwnProperty.call(unreviewedFirstSeenByFile, file)) {
+        delete unreviewedFirstSeenByFile[file];
+        changed = true;
+      }
+      continue;
+    }
+
+    const existing = Number(unreviewedFirstSeenByFile[file] || 0);
+    if (!Number.isFinite(existing) || existing <= 0) {
+      unreviewedFirstSeenByFile[file] = nowMs;
+      changed = true;
+    }
+  }
+
+  for (const file of Object.keys(unreviewedFirstSeenByFile)) {
+    if (!filesNow.has(file)) {
+      delete unreviewedFirstSeenByFile[file];
+      changed = true;
+    }
+  }
+
+  if (changed) persistUnreviewedFirstSeenMap();
+}
+
+function markFileReviewedForAging(file) {
+  if (!file) return;
+  if (!Object.prototype.hasOwnProperty.call(unreviewedFirstSeenByFile, file)) return;
+  delete unreviewedFirstSeenByFile[file];
+  persistUnreviewedFirstSeenMap();
+}
+
+function getUnreviewedFirstSeenMs(file, fallbackMs = Date.now()) {
+  const n = Number(unreviewedFirstSeenByFile[String(file || "")] || 0);
+  return Number.isFinite(n) && n > 0 ? n : fallbackMs;
+}
+
+function formatAgeShortFromMs(ageMs) {
+  const mins = Math.max(0, Math.floor(Number(ageMs || 0) / 60000));
+  if (mins < 60) return `${mins}m`;
+  const hrs = Math.floor(mins / 60);
+  const rem = mins % 60;
+  return rem === 0 ? `${hrs}h` : `${hrs}h ${rem}m`;
+}
+
+function getAgingClass(ageMs) {
+  if (ageMs >= 30 * 60000) return "age-hot";
+  if (ageMs >= 15 * 60000) return "age-warn";
+  return "age-fresh";
+}
+
+function ensureLastReviewEl() {
+  let el = document.getElementById("last-review-age");
+  if (el) return el;
+
+  const topbar = document.querySelector(".topbar");
+  if (!topbar) return null;
+
+  el = document.createElement("span");
+  el.id = "last-review-age";
+  el.className = "muted mono";
+
+  if (statusEl && statusEl.parentElement === topbar) {
+    topbar.insertBefore(el, statusEl);
+  } else {
+    topbar.appendChild(el);
+  }
+  return el;
+}
+
+function renderLastReviewAge() {
+  const el = ensureLastReviewEl();
+  if (!el) return;
+
+  if (!latestReviewMs) {
+    el.textContent = "Last review: none yet";
+    return;
+  }
+
+  const delta = Math.max(0, Date.now() - latestReviewMs);
+  const mins = Math.floor(delta / 60000);
+
+  if (mins < 1) {
+    el.textContent = "Last review just now";
+    return;
+  }
+
+  if (mins < 60) {
+    el.textContent = `Last review ${mins} minute${mins === 1 ? "" : "s"} ago`;
+    return;
+  }
+
+  const hours = Math.floor(mins / 60);
+  el.textContent = `Last review ${hours} hour${hours === 1 ? "" : "s"} ago`;
 }
 
 // --------------------
@@ -2573,6 +2706,7 @@ async function loadAreaList() {
 
           // ✅ reviewed comes from JSON
           reviewed: data.reviewed === true,
+          reviewed_at: data.reviewed_at || "",
 
           recounts: extractRecountLocations(data, it.file),
           questions: extractQuestionLocations(data, it.file),
@@ -2585,12 +2719,20 @@ async function loadAreaList() {
           file: it.file,
           group_id: null,
           reviewed: false,
+          reviewed_at: "",
           recounts: [],
           questions: [],
         };
       }
     }),
   );
+
+  syncUnreviewedFirstSeen(enriched);
+  latestReviewMs = enriched.reduce(
+    (max, e) => Math.max(max, toMs(e?.reviewed_at || "")),
+    0,
+  );
+  renderLastReviewAge();
 
   // Update notification state (new replies / new chat)
   latestQuestionsReplyMs = computeLatestQuestionsReplyMs(enriched);
@@ -2735,58 +2877,125 @@ async function loadAreaList() {
   );
   const visibleSingles = singles.filter((s) => keepSingle(s));
 
+  if (currentTab === TABS.TO_REVIEW) {
+    const nowMs = Date.now();
+    const groupOldestMs = (members) => {
+      const unreviewed = (members || []).filter((m) => m.reviewed !== true);
+      if (unreviewed.length === 0) return nowMs;
+      return unreviewed.reduce(
+        (min, m) => Math.min(min, getUnreviewedFirstSeenMs(m.file, nowMs)),
+        nowMs,
+      );
+    };
+
+    visibleGroups.sort((a, b) => {
+      const byAge = groupOldestMs(a[1]) - groupOldestMs(b[1]); // oldest first
+      if (byAge !== 0) return byAge;
+      return String(a[0]).localeCompare(String(b[0]));
+    });
+
+    visibleSingles.sort((a, b) => {
+      const byAge =
+        getUnreviewedFirstSeenMs(a.file, nowMs) -
+        getUnreviewedFirstSeenMs(b.file, nowMs); // oldest first
+      if (byAge !== 0) return byAge;
+      return String(a.area_num).localeCompare(String(b.area_num));
+    });
+  }
+
   statusEl.textContent = `${visibleGroups.length} group(s), ${
     visibleSingles.length
   } single area(s) — tab: ${
     currentTab === TABS.REVIEWED ? "Reviewed" : "To Be Reviewed"
   }.`;
 
-  // Render groups
-  for (const [gid, members] of visibleGroups) {
+  const renderGroupItem = (gid, members) => {
     const li = document.createElement("li");
-
     const areaNums = members.map((m) => m.area_num).filter(Boolean);
     const areaLabel = summarizeAreaNumbers(areaNums, 2);
-
     const locationCount = members.reduce(
       (acc, m) => acc + Number(m.location_count || 0),
       0,
     );
-
     const title = buildGroupTitleFromDescriptions(members);
     const allReviewed = members.every((m) => m.reviewed);
+    const oldestMs = members
+      .filter((m) => m.reviewed !== true)
+      .reduce(
+        (min, m) => Math.min(min, getUnreviewedFirstSeenMs(m.file)),
+        Date.now(),
+      );
+    const ageMs = Math.max(0, Date.now() - oldestMs);
+    const agingClass = getAgingClass(ageMs);
+    if (currentTab === TABS.TO_REVIEW) li.classList.add(agingClass);
 
     li.innerHTML = `
       <div style="display:flex; align-items:baseline; justify-content:space-between; gap:10px;">
         <strong>${escapeHtml(title)}</strong>
-        ${allReviewed ? `<span class="muted">Reviewed ✓</span>` : ""}
+        ${
+          allReviewed
+            ? `<span class="muted">Reviewed &#10003;</span>`
+            : currentTab === TABS.TO_REVIEW
+              ? `<span class="age-pill ${agingClass}">&#128339; ${escapeHtml(formatAgeShortFromMs(ageMs))}</span>`
+              : ""
+        }
       </div>
       <div class="mono muted">${escapeHtml(areaLabel)}</div>
-      <div class="muted">${
-        members.length
-      } areas • ${locationCount} locations</div>
+      <div class="muted">${members.length} areas &bull; ${locationCount} locations</div>
     `;
 
     li.addEventListener("click", () => loadAreaGroup(gid, members));
-    areaList.appendChild(li);
-  }
+    return { li, sortMs: oldestMs, sortLabel: title };
+  };
 
-  // Render singles
-  for (const item of visibleSingles) {
+  const renderSingleItem = (item) => {
     const li = document.createElement("li");
     const reviewed = item.reviewed === true;
+    const firstSeenMs = getUnreviewedFirstSeenMs(item.file);
+    const ageMs = Math.max(0, Date.now() - firstSeenMs);
+    const agingClass = getAgingClass(ageMs);
+    if (currentTab === TABS.TO_REVIEW && !reviewed) li.classList.add(agingClass);
 
     li.innerHTML = `
       <div style="display:flex; align-items:baseline; justify-content:space-between; gap:10px;">
         <strong>${escapeHtml(item.area_desc || "")}</strong>
-        ${reviewed ? `<span class="muted">Reviewed ✓</span>` : ""}
+        ${
+          reviewed
+            ? `<span class="muted">Reviewed &#10003;</span>`
+            : currentTab === TABS.TO_REVIEW
+              ? `<span class="age-pill ${agingClass}">&#128339; ${escapeHtml(formatAgeShortFromMs(ageMs))}</span>`
+              : ""
+        }
       </div>
       <div class="mono muted">${escapeHtml(item.area_num ?? "")}</div>
       <div class="muted">${item.location_count ?? 0} locations</div>
     `;
 
     li.addEventListener("click", () => loadArea(item.file));
-    areaList.appendChild(li);
+    return { li, sortMs: firstSeenMs, sortLabel: item.area_desc || "" };
+  };
+
+  if (currentTab === TABS.TO_REVIEW) {
+    const merged = [
+      ...visibleGroups.map(([gid, members]) => renderGroupItem(gid, members)),
+      ...visibleSingles.map((item) => renderSingleItem(item)),
+    ];
+
+    merged.sort((a, b) => {
+      const byAge = a.sortMs - b.sortMs; // oldest first
+      if (byAge !== 0) return byAge;
+      return String(a.sortLabel).localeCompare(String(b.sortLabel));
+    });
+
+    merged.forEach((x) => areaList.appendChild(x.li));
+    return;
+  }
+
+  for (const [gid, members] of visibleGroups) {
+    areaList.appendChild(renderGroupItem(gid, members).li);
+  }
+  for (const item of visibleSingles) {
+    areaList.appendChild(renderSingleItem(item).li);
   }
 }
 
@@ -3175,6 +3384,9 @@ async function loadAreaGroup(groupId, members) {
           );
 
           markBtn.textContent = "Reviewed ✓";
+          for (const { meta } of results) markFileReviewedForAging(meta.file);
+          latestReviewMs = toMs(reviewed_at) || Date.now();
+          renderLastReviewAge();
           statusEl.textContent = "Marked group as reviewed.";
         } catch (e) {
           console.error(e);
@@ -3506,6 +3718,9 @@ async function loadArea(file) {
 
           markBtn.textContent = "Reviewed ✓";
           data.reviewed = true;
+          markFileReviewedForAging(file);
+          latestReviewMs = toMs(reviewed_at) || Date.now();
+          renderLastReviewAge();
           statusEl.textContent = "Marked reviewed.";
           if (closeAfterMark) {
             closeAfterMark = false;
@@ -3514,6 +3729,7 @@ async function loadArea(file) {
           }
         } catch (e) {
           console.error(e);
+          closeAfterMark = false;
           markBtn.disabled = false;
           alert(`Could not Mark Reviewed: ${e.message || e}`);
           statusEl.textContent = "Mark Reviewed failed.";
@@ -3531,9 +3747,13 @@ tabRecountsBtn?.addEventListener("click", () => setActiveTab(TABS.RECOUNTS));
 tabQuestionsBtn?.addEventListener("click", () => setActiveTab(TABS.QUESTIONS));
 chatBtn?.addEventListener("click", () => openChatModal());
 
+renderLastReviewAge();
+setInterval(renderLastReviewAge, 30000);
+
 // Ensure tab UI is in sync on first load
 setActiveTab(currentTab);
 
 // One more: on initial load, if we already have pending writes, try to flush.
 flushPendingQueue();
 updateDisconnectUI();
+
