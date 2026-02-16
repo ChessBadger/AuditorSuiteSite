@@ -2995,8 +2995,7 @@ async function loadAreaGroup(groupId, members) {
       const areaTitle = `
         <div class="report-grid" style="padding:10px 6px; font-weight:800;">
           <div style="grid-column: 1 / span 6; font-size:18px;">
-            AREA <span class="mono">${escapeHtml(data.area_num ?? "")}</span>
-            &nbsp;&nbsp; ${escapeHtml(data.area_desc || "")}
+            ${escapeHtml(data.area_desc || "")}
           </div>
         </div>
         <div style="border-bottom:1px solid #bbb;"></div>
