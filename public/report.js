@@ -49,6 +49,29 @@ function toMs(ts) {
   return Number.isFinite(n) ? n : 0;
 }
 
+function normalizeLocKey(v) {
+  const s = String(v ?? "").trim();
+  if (!s) return "";
+  const compact = s.replace(/,/g, "");
+
+  // Handle numeric strings safely, including decimal forms like "50200.0"
+  if (/^[+-]?\d+(\.\d+)?$/.test(compact)) {
+    const n = Number(compact);
+    if (Number.isFinite(n)) return String(Math.trunc(n));
+  }
+
+  // Fallback for mixed formats (e.g. "LOC-50200")
+  const digits = compact.replace(/\D+/g, "");
+  if (!digits) return compact;
+  const n = Number.parseInt(digits, 10);
+  return Number.isFinite(n) ? String(n) : digits.replace(/^0+/, "") || "0";
+}
+
+function getLocNumValue(loc) {
+  if (!loc || typeof loc !== "object") return "";
+  return String(loc.loc_num ?? loc.LOC_NUM ?? loc.locNum ?? "").trim();
+}
+
 function loadUnreviewedFirstSeenMap() {
   try {
     const raw = localStorage.getItem(AGING_KEYS.UNREVIEWED_FIRST_SEEN_BY_FILE);
@@ -1209,9 +1232,13 @@ function extractRecountLocations(reportJson, file) {
   const getActionText = (a) =>
     a && typeof a === "object" ? String(a.text || a.reason || "") : "";
 
-  const getLocNum = (loc) => String(loc?.loc_num ?? "");
+  const getLocNum = (loc) => getLocNumValue(loc);
   const findLocByNum = (locNum) =>
-    locs.find((l) => getLocNum(l) === String(locNum ?? ""));
+    locs.find((l) => normalizeLocKey(getLocNum(l)) === normalizeLocKey(locNum));
+  const getRecountTotals = (loc) => ({
+    new_total: loc?.ext_price_total_current ?? null,
+    old_total: loc?.ext_price_total_current_previous ?? null,
+  });
 
   // 1) top-level actions -> rows
   const topRows = [];
@@ -1223,9 +1250,10 @@ function extractRecountLocations(reportJson, file) {
       file,
       area_num,
       area_desc,
-      loc_num: match?.loc_num ?? a?.loc_num ?? "",
+      loc_num: getLocNum(match) || String(a?.loc_num ?? a?.LOC_NUM ?? ""),
       loc_desc: match?.loc_desc || "",
       reason: getActionText(a),
+      ...getRecountTotals(match),
     });
   }
 
@@ -1244,9 +1272,10 @@ function extractRecountLocations(reportJson, file) {
         file,
         area_num,
         area_desc,
-        loc_num: match?.loc_num ?? a?.loc_num ?? "",
+        loc_num: getLocNum(match) || String(a?.loc_num ?? a?.LOC_NUM ?? ""),
         loc_desc: match?.loc_desc || "",
         reason: getActionText(a),
+        ...getRecountTotals(match),
       });
     }
   }
@@ -1305,9 +1334,10 @@ function extractRecountLocations(reportJson, file) {
     file,
     area_num,
     area_desc,
-    loc_num: l.loc_num ?? "",
+    loc_num: getLocNum(l),
     loc_desc: l.loc_desc || "",
     reason: recountReason(l),
+    ...getRecountTotals(l),
   }));
 
   // 3) merge + dedupe
@@ -1463,9 +1493,18 @@ function jumpToLocationInView(loc_num) {
   const target = String(loc_num ?? "");
   if (!target) return;
 
-  const row = content.querySelector(
+  let row = content.querySelector(
     `.report-row.report-main[data-loc-num="${CSS.escape(target)}"]`,
   );
+
+  // Fallback for mismatched loc formatting (e.g. "23" vs "00023")
+  if (!row) {
+    const want = normalizeLocKey(target);
+    const rows = content.querySelectorAll(".report-row.report-main[data-loc-num]");
+    row = Array.from(rows).find((r) =>
+      normalizeLocKey(r.getAttribute("data-loc-num") || "") === want
+    ) || null;
+  }
 
   if (!row) return;
 
@@ -1677,6 +1716,9 @@ function renderActionModal() {
 async function submitLocationAction({ action, text }) {
   const ctx = modalState.context;
   if (!ctx) return;
+  const normalizedText = action === "recount" && String(text ?? "").trim() === ""
+    ? " "
+    : String(text ?? "");
 
   const footer = document.getElementById("lam-footer");
   footer.querySelectorAll("button").forEach((b) => (b.disabled = true));
@@ -1689,7 +1731,7 @@ async function submitLocationAction({ action, text }) {
     area_num: ctx.area_num,
     loc_num: ctx.loc_num,
     action, // "recount" | "question"
-    text, // reason or question message
+    text: normalizedText, // reason or question message
     timestamp: new Date().toISOString(),
   };
 
@@ -1719,7 +1761,7 @@ async function submitLocationAction({ action, text }) {
             area_num: ctx.area_num,
             loc_num: ctx.loc_num,
             action,
-            text,
+            text: normalizedText,
             timestamp: payload.timestamp,
           });
         });
@@ -2187,6 +2229,7 @@ function wireLocationRowClicks(root, viewContext) {
 
       row.addEventListener("click", (e) => {
         if (e.target && e.target.closest && e.target.closest("button")) return;
+        if (viewContext?.disableActionModal === true) return;
 
         const file = row.getAttribute("data-file") || viewContext.file;
         const area_num =
@@ -2790,6 +2833,9 @@ async function loadAreaList() {
       const li = document.createElement("li");
       const locLabel = String(r.loc_num || "").padStart(5, "0");
       const reason = (r.reason || "").trim();
+      const hasOldTotal = r.old_total !== null && r.old_total !== undefined;
+      const newTotal = fmtMoney(r.new_total);
+      const oldTotal = fmtMoney(r.old_total);
 
       li.innerHTML = `
         <div><strong>LOC ${escapeHtml(locLabel)} — ${escapeHtml(
@@ -2799,11 +2845,19 @@ async function loadAreaList() {
           r.area_num || "",
         )} • ${escapeHtml(r.area_desc || "")}</div>
         ${reason ? `<div class="muted">${escapeHtml(reason)}</div>` : ""}
+        ${
+          hasOldTotal
+            ? `<div class="recount-total-line">NEW TOTAL: ${escapeHtml(newTotal || "0.00")}</div>
+               <div class="recount-total-line">OLD TOTAL: ${escapeHtml(oldTotal || "0.00")}</div>`
+            : ""
+        }
       `;
 
       li.addEventListener("click", async () => {
-        await loadArea(r.file);
-        jumpToLocationInView(r.loc_num);
+        await loadArea(r.file, {
+          jumpLocNum: r.loc_num,
+          disableActionModal: true,
+        });
       });
 
       areaList.appendChild(li);
@@ -2848,8 +2902,7 @@ async function loadAreaList() {
 `;
 
       li.addEventListener("click", async () => {
-        await loadArea(q.file);
-        jumpToLocationInView(q.loc_num);
+        await loadArea(q.file, { jumpLocNum: q.loc_num });
       });
       areaList.appendChild(li);
     }
@@ -3164,7 +3217,7 @@ async function loadAreaGroup(groupId, members) {
                    data-file="${escapeHtml(meta.file)}"
                    data-area-num="${escapeHtml(data.area_num ?? "")}"
                    data-area-desc="${escapeHtml(data.area_desc || "")}"
-                   data-loc-num="${escapeHtml(l.loc_num ?? "")}"
+                   data-loc-num="${escapeHtml(getLocNumValue(l))}"
                    data-loc-desc="${escapeHtml(l.loc_desc || "")}"
                    data-show-prior-desc="${showPrior ? "1" : "0"}"
                    data-prior-desc="${escapeHtml(priorDesc || "")}"
@@ -3241,7 +3294,7 @@ async function loadAreaGroup(groupId, members) {
                    data-file="${escapeHtml(meta.file)}"
                    data-area-num="${escapeHtml(data.area_num ?? "")}"
                    data-area-desc="${escapeHtml(data.area_desc || "")}"
-                   data-loc-num="${escapeHtml(l.loc_num ?? "")}"
+                   data-loc-num="${escapeHtml(getLocNumValue(l))}"
                    data-loc-desc="${escapeHtml(l.loc_desc || "")}"
                    data-show-prior-desc="${showPrior ? "1" : "0"}"
                    data-prior-desc="${escapeHtml(priorDesc || "")}"
@@ -3399,7 +3452,10 @@ async function loadAreaGroup(groupId, members) {
   }
 }
 
-async function loadArea(file) {
+async function loadArea(file, options = {}) {
+  const jumpLocNum = options?.jumpLocNum ?? "";
+  const disableActionModal = options?.disableActionModal === true;
+
   currentView.type = "area";
   currentView.file = file;
   currentView.groupId = null;
@@ -3506,7 +3562,7 @@ async function loadArea(file) {
                data-file="${escapeHtml(file)}"
                data-area-num="${escapeHtml(data.area_num ?? "")}"
                data-area-desc="${escapeHtml(data.area_desc || "")}"
-               data-loc-num="${escapeHtml(l.loc_num ?? "")}"
+               data-loc-num="${escapeHtml(getLocNumValue(l))}"
                data-loc-desc="${escapeHtml(l.loc_desc || "")}"
                data-show-prior-desc="${showPrior ? "1" : "0"}"
                data-prior-desc="${escapeHtml(priorDesc || "")}"
@@ -3590,7 +3646,7 @@ async function loadArea(file) {
                data-file="${escapeHtml(file)}"
                data-area-num="${escapeHtml(data.area_num ?? "")}"
                data-area-desc="${escapeHtml(data.area_desc || "")}"
-               data-loc-num="${escapeHtml(l.loc_num ?? "")}"
+               data-loc-num="${escapeHtml(getLocNumValue(l))}"
                data-loc-desc="${escapeHtml(l.loc_desc || "")}"
                data-show-prior-desc="${showPrior ? "1" : "0"}"
                data-prior-desc="${escapeHtml(priorDesc || "")}"
@@ -3663,11 +3719,16 @@ async function loadArea(file) {
     file,
     area_num: data.area_num ?? "",
     area_desc: data.area_desc || "",
+    disableActionModal: disableActionModal || currentTab === TABS.RECOUNTS,
   });
 
   wireBreakdownDisclosureButtons(content, reportTypeKey);
   wireToggleAllBreakdownsButton(content, reportTypeKey);
   applyBreakdownPreference(content, reportTypeKey);
+
+  if (jumpLocNum) {
+    requestAnimationFrame(() => jumpToLocationInView(jumpLocNum));
+  }
 
   statusEl.textContent = `Loaded area ${data.area_num}`;
   let closeAfterMark = false;

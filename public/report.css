@@ -238,12 +238,18 @@ h1 {
   border-color: #ffcc80;
 }
 
-.age-pill.age-hot {
-  color: #8e0000;
-  background: #ffebee;
-  border-color: #ef9a9a;
+.recount-total-line {
+  margin-top: 4px;
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  color: #0f172a;
+  background: rgba(15, 23, 42, 0.06);
+  border: 1px solid rgba(15, 23, 42, 0.12);
 }
-
 .list li::after {
   content: "›";
   position: absolute;
