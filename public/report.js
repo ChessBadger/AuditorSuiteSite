@@ -1968,6 +1968,80 @@ function wireToggleAllBreakdownsButton(root, reportTypeKey = "standard") {
 }
 
 // --------------------
+// Review close prompt modal
+// --------------------
+
+function ensureReviewCloseModal() {
+  if (document.getElementById("review-close-modal")) return;
+
+  const modalHtml = `
+<div id="review-close-modal" class="modal-backdrop" style="display:none;">
+  <div class="modal">
+    <div class="modal-header">
+      <div>
+        <div style="font-weight:800; font-size:20px;">Mark Area Reviewed?</div>
+        <div class="muted" style="margin-top:4px;">This area is not marked as reviewed.</div>
+      </div>
+      <button id="review-close-x" class="btn" type="button">✕</button>
+    </div>
+    <div class="modal-body">
+      Mark this area as reviewed before closing?
+    </div>
+    <div class="modal-footer">
+      <div class="modal-actions">
+        <button id="review-close-skip" class="btn" type="button">Close Without Review</button>
+        <button id="review-close-mark" class="btn btn-primary" type="button">Mark Reviewed</button>
+      </div>
+    </div>
+  </div>
+</div>
+`;
+
+  document.body.insertAdjacentHTML("beforeend", modalHtml);
+}
+
+function promptMarkReviewedBeforeClose() {
+  ensureReviewCloseModal();
+
+  return new Promise((resolve) => {
+    const modal = document.getElementById("review-close-modal");
+    const btnX = document.getElementById("review-close-x");
+    const btnSkip = document.getElementById("review-close-skip");
+    const btnMark = document.getElementById("review-close-mark");
+
+    const onEsc = (e) => {
+      if (e.key === "Escape") finalize(false);
+    };
+
+    const onBackdrop = (e) => {
+      if (e.target && e.target.id === "review-close-modal") finalize(false);
+    };
+
+    const finalize = (val) => {
+      modal.style.display = "none";
+      btnX.removeEventListener("click", onX);
+      btnSkip.removeEventListener("click", onSkip);
+      btnMark.removeEventListener("click", onMark);
+      modal.removeEventListener("click", onBackdrop);
+      document.removeEventListener("keydown", onEsc);
+      resolve(val);
+    };
+
+    const onX = () => finalize(false);
+    const onSkip = () => finalize(false);
+    const onMark = () => finalize(true);
+
+    btnX.addEventListener("click", onX);
+    btnSkip.addEventListener("click", onSkip);
+    btnMark.addEventListener("click", onMark);
+    modal.addEventListener("click", onBackdrop);
+    document.addEventListener("keydown", onEsc);
+
+    modal.style.display = "flex";
+  });
+}
+
+// --------------------
 // Row click wiring
 // --------------------
 
@@ -3384,8 +3458,20 @@ async function loadArea(file) {
   applyBreakdownPreference(content, reportTypeKey);
 
   statusEl.textContent = `Loaded area ${data.area_num}`;
+  let closeAfterMark = false;
 
-  document.getElementById("back-to-areas")?.addEventListener("click", () => {
+  document.getElementById("back-to-areas")?.addEventListener("click", async () => {
+    if (data.reviewed !== true) {
+      const shouldMark = await promptMarkReviewedBeforeClose();
+      if (shouldMark) {
+        const markBtn = document.getElementById("mark-reviewed");
+        if (markBtn && !markBtn.disabled) {
+          closeAfterMark = true;
+          markBtn.click();
+          return;
+        }
+      }
+    }
     setSplitMode("list");
     loadAreaList();
   });
@@ -3419,7 +3505,13 @@ async function loadArea(file) {
           );
 
           markBtn.textContent = "Reviewed ✓";
+          data.reviewed = true;
           statusEl.textContent = "Marked reviewed.";
+          if (closeAfterMark) {
+            closeAfterMark = false;
+            setSplitMode("list");
+            loadAreaList();
+          }
         } catch (e) {
           console.error(e);
           markBtn.disabled = false;
