@@ -193,19 +193,29 @@ function renderLastReviewAge() {
 
   const delta = Math.max(0, Date.now() - latestReviewMs);
   const mins = Math.floor(delta / 60000);
+  const warnAmber = mins >= 25;
+  const warnRed = mins >= 45;
+  const warnIcon = warnRed
+    ? '<span class="review-warn-badge review-warn-badge-red">!!</span>'
+    : warnAmber
+      ? '<span class="review-warn-badge review-warn-badge-amber">!</span>'
+      : "";
+
+  el.classList.toggle("review-warn-amber", warnAmber && !warnRed);
+  el.classList.toggle("review-warn-red", warnRed);
 
   if (mins < 1) {
-    el.textContent = "Last review just now";
+    el.innerHTML = `${warnIcon}Last review just now`;
     return;
   }
 
   if (mins < 60) {
-    el.textContent = `Last review ${mins} minute${mins === 1 ? "" : "s"} ago`;
+    el.innerHTML = `${warnIcon}Last review ${mins} minute${mins === 1 ? "" : "s"} ago`;
     return;
   }
 
   const hours = Math.floor(mins / 60);
-  el.textContent = `Last review ${hours} hour${hours === 1 ? "" : "s"} ago`;
+  el.innerHTML = `${warnIcon}Last review ${hours} hour${hours === 1 ? "" : "s"} ago`;
 }
 
 // --------------------
