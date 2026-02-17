@@ -5,6 +5,7 @@ const content = document.getElementById("content");
 const statusEl = document.getElementById("status");
 const refreshBtn = document.getElementById("btn-refresh");
 const chatBtn = document.getElementById("btn-chat");
+const helpBtn = document.getElementById("btn-help");
 
 const tabToReviewBtn = document.getElementById("tab-to-review");
 const tabReviewedBtn = document.getElementById("tab-reviewed");
@@ -2158,6 +2159,74 @@ function wireLocationMessageButtons(root) {
   });
 }
 
+function ensureHelpModal() {
+  if (document.getElementById("help-modal")) return;
+
+  const modalHtml = `
+<div id="help-modal" class="modal-backdrop" style="display:none;">
+  <div class="modal">
+    <div class="modal-header">
+      <div>
+        <div style="font-weight:900; font-size:20px;">How To Use Manager Reports</div>
+      </div>
+      <button id="help-close" class="btn" type="button">X</button>
+    </div>
+
+    <div class="modal-body help-body">
+      <div class="help-section-title">Quick Workflow</div>
+      <div>1. Start in <strong>To Be Reviewed</strong> and open an area.</div>
+      <div>2. Click a location row to open actions for that location.</div>
+      <div>3. Use <strong>Recount</strong> or <strong>Question</strong> when needed.</div>
+      <div>4. Use <strong>Mark Reviewed</strong> when the area is complete.</div>
+
+      <div class="help-section-title">Tabs</div>
+      <div><strong>To Be Reviewed:</strong> Areas that still need review.</div>
+      <div><strong>Reviewed:</strong> Areas already marked complete.</div>
+      <div><strong>Recounts:</strong> Locations with recounts and totals.</div>
+      <div><strong>Questions:</strong> Locations with questions and supervisor answers.</div>
+
+      <div class="help-section-title">Icon Legend</div>
+      <div class="help-legend-row"><span class="help-legend-icon">▾</span> Expand/collapse category breakdown for a location.</div>
+      <div class="help-legend-row"><span class="help-legend-icon help-legend-msg">📝</span> Location has a message.</div>
+      <div class="help-legend-row"><span class="help-legend-icon help-legend-prior">↩</span> Location has a prior description available.</div>
+      <div class="help-legend-row"><span class="help-legend-icon help-legend-dot" aria-hidden="true"></span> Red dot on Chat/Tab means new unread activity.</div>
+
+      <div class="help-section-title">Tips</div>
+      <div>Use <strong>Refresh</strong> to reload the list.</div>
+      <div>Use <strong>Chat</strong> for manager/supervisor communication.</div>
+      <div>Press <strong>Esc</strong> to close open dialogs.</div>
+    </div>
+
+    <div class="modal-footer">
+      <div class="modal-actions">
+        <button id="help-ok" class="btn btn-primary" type="button">OK</button>
+      </div>
+    </div>
+  </div>
+</div>
+`;
+  document.body.insertAdjacentHTML("beforeend", modalHtml);
+
+  const close = () => {
+    const m = document.getElementById("help-modal");
+    if (m) m.style.display = "none";
+  };
+
+  document.getElementById("help-close").addEventListener("click", close);
+  document.getElementById("help-ok").addEventListener("click", close);
+
+  document.addEventListener("keydown", (e) => {
+    const m = document.getElementById("help-modal");
+    if (e.key === "Escape" && m && m.style.display === "flex") close();
+  });
+}
+
+function openHelpModal() {
+  ensureHelpModal();
+  const m = document.getElementById("help-modal");
+  if (m) m.style.display = "flex";
+}
+
 function wirePriorDescButtons(root) {
   (root || document).querySelectorAll(".prior-desc-btn").forEach((btn) => {
     if (btn.dataset.boundPrior === "1") return;
@@ -4085,6 +4154,7 @@ tabReviewedBtn?.addEventListener("click", () => setActiveTab(TABS.REVIEWED));
 tabRecountsBtn?.addEventListener("click", () => setActiveTab(TABS.RECOUNTS));
 tabQuestionsBtn?.addEventListener("click", () => setActiveTab(TABS.QUESTIONS));
 chatBtn?.addEventListener("click", () => openChatModal());
+helpBtn?.addEventListener("click", () => openHelpModal());
 
 renderLastReviewAge();
 setInterval(renderLastReviewAge, 30000);
