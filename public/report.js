@@ -107,7 +107,9 @@ function syncUnreviewedFirstSeen(enriched, nowMs = Date.now()) {
     filesNow.add(file);
 
     if (e.reviewed === true) {
-      if (Object.prototype.hasOwnProperty.call(unreviewedFirstSeenByFile, file)) {
+      if (
+        Object.prototype.hasOwnProperty.call(unreviewedFirstSeenByFile, file)
+      ) {
         delete unreviewedFirstSeenByFile[file];
         changed = true;
       }
@@ -133,7 +135,8 @@ function syncUnreviewedFirstSeen(enriched, nowMs = Date.now()) {
 
 function markFileReviewedForAging(file) {
   if (!file) return;
-  if (!Object.prototype.hasOwnProperty.call(unreviewedFirstSeenByFile, file)) return;
+  if (!Object.prototype.hasOwnProperty.call(unreviewedFirstSeenByFile, file))
+    return;
   delete unreviewedFirstSeenByFile[file];
   persistUnreviewedFirstSeenMap();
 }
@@ -380,7 +383,10 @@ function getSeenRecountResultKeys() {
 function setSeenRecountResultKeys(keysSet) {
   try {
     const arr = Array.from(keysSet || []).map((v) => String(v));
-    localStorage.setItem(SEEN_KEYS.RECOUNTS_RESULTS_SEEN_KEYS, JSON.stringify(arr));
+    localStorage.setItem(
+      SEEN_KEYS.RECOUNTS_RESULTS_SEEN_KEYS,
+      JSON.stringify(arr),
+    );
   } catch {
     // best-effort
   }
@@ -421,10 +427,7 @@ function refreshRecountsNotification() {
       break;
     }
   }
-  setNotif(
-    tabRecountsBtn,
-    hasUnseen && currentTab !== TABS.RECOUNTS,
-  );
+  setNotif(tabRecountsBtn, hasUnseen && currentTab !== TABS.RECOUNTS);
 }
 
 function markQuestionsRepliesSeen() {
@@ -1444,7 +1447,9 @@ function extractRecountLocations(reportJson, file) {
       if (candidates.length > 0) {
         return candidates
           .slice()
-          .sort((a, b) => String(getActionTs(a)).localeCompare(String(getActionTs(b))))
+          .sort((a, b) =>
+            String(getActionTs(a)).localeCompare(String(getActionTs(b))),
+          )
           .pop();
       }
     }
@@ -1506,6 +1511,7 @@ function extractQuestionLocations(reportJson, file) {
 
   const getActionReplyAt = (a) =>
     a && typeof a === "object" ? String(a.reply_at ?? a.replyAt ?? "") : "";
+  const hasReplyText = (r) => String(r?.reply || "").trim().length > 0;
 
   const getLocNum = (loc) => String(loc?.loc_num ?? "");
   const findLocByNum = (locNum) =>
@@ -1609,6 +1615,17 @@ function extractQuestionLocations(reportJson, file) {
       continue;
     }
 
+    // Prefer rows that include a reply so answers are visible in the Questions tab.
+    const prevHasReply = hasReplyText(prev);
+    const nextHasReply = hasReplyText(r);
+    if (!prevHasReply && nextHasReply) {
+      bestByKey.set(key, r);
+      continue;
+    }
+    if (prevHasReply && !nextHasReply) {
+      continue;
+    }
+
     const a = String(prev.timestamp || "");
     const b = String(r.timestamp || "");
     if (b && (!a || b.localeCompare(a) > 0)) bestByKey.set(key, r);
@@ -1630,7 +1647,9 @@ function findLocationRowInView(loc_num) {
   );
   if (row) return row;
 
-  const rows = content.querySelectorAll(".report-row.report-main[data-loc-num]");
+  const rows = content.querySelectorAll(
+    ".report-row.report-main[data-loc-num]",
+  );
   row =
     Array.from(rows).find(
       (r) => normalizeLocKey(r.getAttribute("data-loc-num") || "") === want,
@@ -1664,7 +1683,10 @@ function jumpToLocationInView(loc_num, opts = {}) {
           persistentHighlightedRow.classList.remove("highlight");
         }
         const block = row.closest(".report-block");
-        if (persistentHighlightedBlock && persistentHighlightedBlock !== block) {
+        if (
+          persistentHighlightedBlock &&
+          persistentHighlightedBlock !== block
+        ) {
           persistentHighlightedBlock.classList.remove("highlight-target");
         }
         persistentHighlightedRow = row;
@@ -1769,7 +1791,8 @@ function renderActionModal() {
   }`;
   const priorDesc = String(ctx.prior_desc || "").trim();
   const locationMessage = String(ctx.location_message || "").trim();
-  const showPrior = String(ctx.show_prior_desc || "") === "1" &&
+  const showPrior =
+    String(ctx.show_prior_desc || "") === "1" &&
     priorDesc.length > 0 &&
     priorDesc !== String(ctx.loc_desc || "").trim();
   const showMsg = locationMessage.length > 0;
@@ -1790,14 +1813,15 @@ function renderActionModal() {
       </div>
     `);
   }
-  const extraInfoHtml = noteBlocks.length > 0
-    ? `
+  const extraInfoHtml =
+    noteBlocks.length > 0
+      ? `
     <div style="margin-top:12px; border-top:1px dashed #d0d7e2; padding-top:10px;">
       <div style="font-size:12px; font-weight:800; letter-spacing:0.02em; color:#5f6b7a; text-transform:uppercase; margin-bottom:6px;">Location Notes</div>
       ${noteBlocks.join("")}
     </div>
   `
-    : "";
+      : "";
 
   if (modalState.step === "choose") {
     body.innerHTML = `
@@ -1888,9 +1912,10 @@ function renderActionModal() {
 async function submitLocationAction({ action, text }) {
   const ctx = modalState.context;
   if (!ctx) return;
-  const normalizedText = action === "recount" && String(text ?? "").trim() === ""
-    ? " "
-    : String(text ?? "");
+  const normalizedText =
+    action === "recount" && String(text ?? "").trim() === ""
+      ? " "
+      : String(text ?? "");
 
   const footer = document.getElementById("lam-footer");
   footer.querySelectorAll("button").forEach((b) => (b.disabled = true));
@@ -1941,7 +1966,9 @@ async function submitLocationAction({ action, text }) {
           // immediately visible and remains present in area JSON.
           const locs = Array.isArray(data.locations) ? data.locations : [];
           const wanted = normalizeLocKey(ctx.loc_num);
-          const match = locs.find((l) => normalizeLocKey(getLocNumValue(l)) === wanted);
+          const match = locs.find(
+            (l) => normalizeLocKey(getLocNumValue(l)) === wanted,
+          );
           if (match && typeof match === "object") {
             match.action = action;
             if (!Array.isArray(match.actions)) match.actions = [];
@@ -2195,8 +2222,9 @@ function readCookie(name) {
 }
 
 function writeCookie(name, value, days = 365) {
-  const expires = new Date(Date.now() + days * 24 * 60 * 60 * 1000)
-    .toUTCString();
+  const expires = new Date(
+    Date.now() + days * 24 * 60 * 60 * 1000,
+  ).toUTCString();
   document.cookie = `${name}=${encodeURIComponent(value)}; expires=${expires}; path=/; SameSite=Lax`;
 }
 
@@ -2258,7 +2286,9 @@ function refreshToggleAllBreakdownsButton(root) {
   }
 
   toggleBtn.disabled = false;
-  const allOpen = buttons.every((b) => b.getAttribute("aria-expanded") === "true");
+  const allOpen = buttons.every(
+    (b) => b.getAttribute("aria-expanded") === "true",
+  );
   toggleBtn.textContent = allOpen ? "Collapse All" : "Expand All";
 }
 
@@ -2285,9 +2315,11 @@ function wireBreakdownDisclosureButtons(root, reportTypeKey = "standard") {
       // If user ends up with everything open/closed by individual toggles,
       // treat that as their preference for this report type.
       const buttons = Array.from(scope.querySelectorAll(".row-disclosure-btn"));
-      const allOpen = buttons.length > 0 &&
+      const allOpen =
+        buttons.length > 0 &&
         buttons.every((b) => b.getAttribute("aria-expanded") === "true");
-      const allClosed = buttons.length > 0 &&
+      const allClosed =
+        buttons.length > 0 &&
         buttons.every((b) => b.getAttribute("aria-expanded") !== "true");
       if (allOpen || allClosed) {
         savePreferredBreakdownExpanded(reportTypeKey, allOpen);
@@ -2421,7 +2453,8 @@ function wireLocationRowClicks(root, viewContext) {
         const loc_num = row.getAttribute("data-loc-num") || "";
         const loc_desc = row.getAttribute("data-loc-desc") || "";
         const prior_desc = row.getAttribute("data-prior-desc") || "";
-        const location_message = row.getAttribute("data-location-message") || "";
+        const location_message =
+          row.getAttribute("data-location-message") || "";
         const show_prior_desc = row.getAttribute("data-show-prior-desc") || "";
 
         openActionModal({
@@ -3037,21 +3070,22 @@ async function loadAreaList() {
       const noChangeRate = checkedCount > 0 ? noChangeCount / checkedCount : 0;
 
       const netMagnitude = Math.abs(netVariance);
+      const pctChanged =
+        oldTotalsBase > 0 ? (netVariance / oldTotalsBase) * 100 : 0;
+      const pctMagnitude = Math.abs(pctChanged);
       let summaryTone = "recount-summary-high";
       let summaryHint = "Changes are being observed across recount results.";
-      if (netMagnitude < 10 || noChangeRate >= 0.7) {
+      if (pctMagnitude <= 5 || netMagnitude < 10 || noChangeRate >= 0.7) {
         summaryTone = "recount-summary-low";
         summaryHint = "Overall change is low across recent recount results.";
-      } else if (netMagnitude < 40) {
+      } else if (pctMagnitude <= 12 || netMagnitude < 40) {
         summaryTone = "recount-summary-mid";
-        summaryHint = "Overall change is moderate across recent recount results.";
+        summaryHint =
+          "Overall change is moderate across recent recount results.";
       }
 
       const summaryLi = document.createElement("li");
       summaryLi.className = `recount-summary ${summaryTone}`;
-      const pctChanged = oldTotalsBase > 0
-        ? (netVariance / oldTotalsBase) * 100
-        : 0;
       summaryLi.innerHTML = `
         <div><strong>Recount Impact Summary</strong></div>
         <div class="muted">
@@ -3077,7 +3111,8 @@ async function loadAreaList() {
       const oldTotal = fmtMoney(r.old_total);
       const newNum = Number(r.new_total);
       const oldNum = Number(r.old_total);
-      const totalsSame = hasOldTotal &&
+      const totalsSame =
+        hasOldTotal &&
         Number.isFinite(newNum) &&
         Number.isFinite(oldNum) &&
         Math.abs(newNum - oldNum) < 0.0001;
@@ -3093,7 +3128,7 @@ async function loadAreaList() {
         ${
           hasOldTotal
             ? totalsSame
-              ? `<div class="recount-no-change">No changes from recount</div>`
+              ? `<div class="recount-no-change">NO CHANGES FROM RECOUNT</div>`
               : `<div class="recount-total-line recount-total-new">NEW TOTAL: ${escapeHtml(newTotal || "0.00")}</div>
                  <div class="recount-total-line recount-total-old">OLD TOTAL: ${escapeHtml(oldTotal || "0.00")}</div>`
             : ""
@@ -3134,18 +3169,13 @@ async function loadAreaList() {
       const li = document.createElement("li");
       const locLabel = String(q.loc_num || "").padStart(5, "0");
       const msg = (q.message || "").trim();
+      const reply = String(q.reply || "").trim();
 
       li.innerHTML = `
   <div><strong>LOC ${escapeHtml(locLabel)} — ${escapeHtml(q.loc_desc || "")}</strong></div>
   <div class="mono muted">AREA ${escapeHtml(q.area_num || "")} • ${escapeHtml(q.area_desc || "")}</div>
   ${msg ? `<div class="muted">${escapeHtml(msg)}</div>` : ""}
-  ${
-    String(q.reply || "").trim()
-      ? `<div class="muted" style="margin-top:6px;">
-          <strong>ANSWER: </strong>${escapeHtml(q.reply)}
-        </div>`
-      : ""
-  }
+  ${reply ? `<div class="muted" style="margin-top:6px;">ANSWER: ${escapeHtml(reply)}</div>` : ""}
 `;
 
       li.addEventListener("click", async () => {
@@ -3254,7 +3284,8 @@ async function loadAreaList() {
     const firstSeenMs = getUnreviewedFirstSeenMs(item.file);
     const ageMs = Math.max(0, Date.now() - firstSeenMs);
     const agingClass = getAgingClass(ageMs);
-    if (currentTab === TABS.TO_REVIEW && !reviewed) li.classList.add(agingClass);
+    if (currentTab === TABS.TO_REVIEW && !reviewed)
+      li.classList.add(agingClass);
 
     li.innerHTML = `
       <div style="display:flex; align-items:baseline; justify-content:space-between; gap:10px;">
@@ -3984,20 +4015,22 @@ async function loadArea(file, options = {}) {
   if (jumpLocNum) jumpToLocationInView(jumpLocNum);
 
   statusEl.textContent = `Loaded area ${data.area_num}`;
-  document.getElementById("back-to-areas")?.addEventListener("click", async () => {
-    if (data.reviewed !== true) {
-      const shouldMark = await promptMarkReviewedBeforeClose();
-      if (shouldMark) {
-        const markBtn = document.getElementById("mark-reviewed");
-        if (markBtn && !markBtn.disabled) {
-          markBtn.click();
-          return;
+  document
+    .getElementById("back-to-areas")
+    ?.addEventListener("click", async () => {
+      if (data.reviewed !== true) {
+        const shouldMark = await promptMarkReviewedBeforeClose();
+        if (shouldMark) {
+          const markBtn = document.getElementById("mark-reviewed");
+          if (markBtn && !markBtn.disabled) {
+            markBtn.click();
+            return;
+          }
         }
       }
-    }
-    setSplitMode("list");
-    loadAreaList();
-  });
+      setSplitMode("list");
+      loadAreaList();
+    });
 
   // Mark as reviewed (server-side)
   const markBtn = document.getElementById("mark-reviewed");
@@ -4062,4 +4095,3 @@ setActiveTab(currentTab);
 // One more: on initial load, if we already have pending writes, try to flush.
 flushPendingQueue();
 updateDisconnectUI();
-

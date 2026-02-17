@@ -653,11 +653,17 @@ app.get("/api/report-exports/:file", (req, res) => {
   const out = JSON.parse(JSON.stringify(base));
 
   const stored = getStoredActionsForFile(file);
+  const baseActions = []
+    .concat(
+      Array.isArray(out.location_actions) ? out.location_actions : [],
+      Array.isArray(out.locationActions) ? out.locationActions : [],
+      Array.isArray(out.actions) ? out.actions : [],
+    );
 
-  // Use the dedicated actions store as source-of-truth.
-  // This keeps area export files immutable and allows a true reset by
-  // clearing/deleting location_actions.json.
-  out.location_actions = mergeLocationActions([], stored);
+  // Merge base export actions with dedicated store actions.
+  // This preserves existing replies embedded in export files while still
+  // allowing store-backed updates and dedupe.
+  out.location_actions = mergeLocationActions(baseActions, stored);
 
   res.json(out);
 });
