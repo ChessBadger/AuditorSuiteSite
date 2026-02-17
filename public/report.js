@@ -35,6 +35,8 @@ const SEEN_KEYS = {
   QUESTIONS_REPLY_LAST_SEEN_MS: `${CACHE_NS}:SEEN_QUESTIONS_REPLY_LAST_SEEN_MS`,
   RECOUNTS_LAST_SEEN_MS: `${CACHE_NS}:SEEN_RECOUNTS_LAST_SEEN_MS`,
   RECOUNTS_RESULTS_SEEN_KEYS: `${CACHE_NS}:SEEN_RECOUNTS_RESULTS_KEYS`,
+  RECOUNTS_VIEWED_KEYS: `${CACHE_NS}:SEEN_RECOUNTS_VIEWED_KEYS`,
+  QUESTIONS_VIEWED_KEYS: `${CACHE_NS}:SEEN_QUESTIONS_VIEWED_KEYS`,
 };
 
 let latestChatMsgMs = 0;
@@ -391,6 +393,75 @@ function setSeenRecountResultKeys(keysSet) {
   } catch {
     // best-effort
   }
+}
+
+function getSeenStringSet(key) {
+  try {
+    const raw = localStorage.getItem(key);
+    const arr = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(arr)) return new Set();
+    return new Set(arr.map((v) => String(v)));
+  } catch {
+    return new Set();
+  }
+}
+
+function setSeenStringSet(key, values) {
+  try {
+    const arr = Array.from(values || []).map((v) => String(v));
+    localStorage.setItem(key, JSON.stringify(arr));
+  } catch {
+    // best-effort
+  }
+}
+
+function getQuestionActivityMs(q) {
+  return Math.max(toMs(q?.reply_at || ""), toMs(q?.timestamp || ""));
+}
+
+function canGrayRecountRow(r) {
+  return r?.old_total !== null && r?.old_total !== undefined;
+}
+
+function canGrayQuestionRow(q) {
+  return String(q?.reply || "").trim().length > 0;
+}
+
+function getRecountViewedKey(r) {
+  const file = String(r?.file || "").trim();
+  const loc = normalizeLocKey(r?.loc_num ?? "");
+  const ts = String(r?.timestamp || "").trim();
+  const oldTotal = normalizeRecountTotalKey(r?.old_total);
+  const newTotal = normalizeRecountTotalKey(r?.new_total);
+  return `${file}::${loc}::${ts}::${oldTotal}::${newTotal}`;
+}
+
+function getQuestionViewedKey(q) {
+  const file = String(q?.file || "").trim();
+  const loc = normalizeLocKey(q?.loc_num ?? "");
+  const ts = String(q?.timestamp || "").trim();
+  const replyAt = String(q?.reply_at || "").trim();
+  return `${file}::${loc}::${ts}::${replyAt}`;
+}
+
+function getViewedRecountKeys() {
+  return getSeenStringSet(SEEN_KEYS.RECOUNTS_VIEWED_KEYS);
+}
+
+function setViewedRecountKey(key) {
+  const seen = getViewedRecountKeys();
+  seen.add(String(key));
+  setSeenStringSet(SEEN_KEYS.RECOUNTS_VIEWED_KEYS, seen);
+}
+
+function getViewedQuestionKeys() {
+  return getSeenStringSet(SEEN_KEYS.QUESTIONS_VIEWED_KEYS);
+}
+
+function setViewedQuestionKey(key) {
+  const seen = getViewedQuestionKeys();
+  seen.add(String(key));
+  setSeenStringSet(SEEN_KEYS.QUESTIONS_VIEWED_KEYS, seen);
 }
 
 async function refreshChatNotification() {
@@ -3017,6 +3088,12 @@ async function loadAreaList() {
         const out = await fetchJsonWithCache(url, CACHE_KEYS.FILE(it.file));
         const data = out.data;
         const eg = getExportGrouping(data);
+        const areaTotalCurrent = Array.isArray(data.locations)
+          ? data.locations.reduce(
+              (sum, l) => sum + (Number(l?.ext_price_total_current) || 0),
+              0,
+            )
+          : 0;
 
         return {
           area_num: normalizeAreaNum(it.area_num ?? data.area_num ?? ""),
@@ -3030,6 +3107,7 @@ async function loadAreaList() {
           // ✅ reviewed comes from JSON
           reviewed: data.reviewed === true,
           reviewed_at: data.reviewed_at || "",
+          area_total_current: areaTotalCurrent,
 
           recounts: extractRecountLocations(data, it.file),
           questions: extractQuestionLocations(data, it.file),
@@ -3043,6 +3121,7 @@ async function loadAreaList() {
           group_id: null,
           reviewed: false,
           reviewed_at: "",
+          area_total_current: 0,
           recounts: [],
           questions: [],
         };
@@ -3100,9 +3179,17 @@ async function loadAreaList() {
 
   // ---- Recounts tab ----
   if (currentTab === TABS.RECOUNTS) {
+    const viewedRecountKeys = getViewedRecountKeys();
     const recountRows = enriched
       .flatMap((e) => e.recounts || [])
       .sort((a, b) => {
+        const aViewed = viewedRecountKeys.has(getRecountViewedKey(a));
+        const bViewed = viewedRecountKeys.has(getRecountViewedKey(b));
+        if (aViewed !== bViewed) return aViewed ? 1 : -1;
+
+        const tb = toMs(b.timestamp || "");
+        const ta = toMs(a.timestamp || "");
+        if (tb !== ta) return tb - ta;
         const aa = String(a.area_num || "");
         const ba = String(b.area_num || "");
         if (aa !== ba) return aa.localeCompare(ba);
@@ -3120,59 +3207,66 @@ async function loadAreaList() {
       (r) => r.old_total !== null && r.old_total !== undefined,
     );
 
-    if (rowsWithTotals.length > 0) {
-      let netVariance = 0;
-      let noChangeCount = 0;
-      let oldTotalsBase = 0;
+    let netVariance = 0;
+    let changedCount = 0;
+    let variancePctSum = 0;
+    let variancePctCount = 0;
 
-      for (const r of rowsWithTotals) {
-        const newNum = Number(r.new_total);
-        const oldNum = Number(r.old_total);
-        if (!Number.isFinite(newNum) || !Number.isFinite(oldNum)) continue;
-        const delta = newNum - oldNum;
-        netVariance += delta;
-        oldTotalsBase += Math.abs(oldNum);
-        if (Math.abs(delta) < 0.0001) noChangeCount += 1;
+    for (const r of rowsWithTotals) {
+      const newNum = Number(r.new_total);
+      const oldNum = Number(r.old_total);
+      if (!Number.isFinite(newNum) || !Number.isFinite(oldNum)) continue;
+      const delta = newNum - oldNum;
+      netVariance += delta;
+      if (Math.abs(delta) >= 0.0001) changedCount += 1;
+
+      const absOld = Math.abs(oldNum);
+      let rowVariancePct = 0;
+      if (absOld > 0) {
+        rowVariancePct = (Math.abs(delta) / absOld) * 100;
+      } else if (Math.abs(delta) > 0) {
+        rowVariancePct = 100;
       }
+      variancePctSum += rowVariancePct;
+      variancePctCount += 1;
+    }
 
-      const checkedCount = rowsWithTotals.length;
-      const noChangeRate = checkedCount > 0 ? noChangeCount / checkedCount : 0;
+    const checkedCount = rowsWithTotals.length;
+    const avgVariancePct =
+      variancePctCount > 0 ? variancePctSum / variancePctCount : 0;
 
-      const netMagnitude = Math.abs(netVariance);
-      const pctChanged =
-        oldTotalsBase > 0 ? (netVariance / oldTotalsBase) * 100 : 0;
-      const pctMagnitude = Math.abs(pctChanged);
-      let summaryTone = "recount-summary-high";
-      let summaryHint = "Changes are being observed across recount results.";
-      if (pctMagnitude <= 5 || netMagnitude < 10 || noChangeRate >= 0.7) {
-        summaryTone = "recount-summary-low";
-        summaryHint = "Overall change is low across recent recount results.";
-      } else if (pctMagnitude <= 12 || netMagnitude < 40) {
-        summaryTone = "recount-summary-mid";
-        summaryHint =
-          "Overall change is moderate across recent recount results.";
-      }
+    const shouldShowSummary = checkedCount >= 10 && avgVariancePct < 3;
 
+    if (shouldShowSummary) {
       const summaryLi = document.createElement("li");
-      summaryLi.className = `recount-summary ${summaryTone}`;
+      summaryLi.className = "recount-summary recount-summary-low";
       summaryLi.innerHTML = `
         <div><strong>Recount Impact Summary</strong></div>
         <div class="muted">
           NET CHANGE: <strong>${escapeHtml(fmtMoney(netVariance))}</strong>
-          &nbsp;•&nbsp;
-          CHANGE %: <strong>${escapeHtml(pctChanged.toFixed(2))}%</strong>
-          &nbsp;•&nbsp;
-          CHECKED: <strong>${escapeHtml(String(checkedCount))}</strong>
-          &nbsp;•&nbsp;
-          NO CHANGE: <strong>${escapeHtml(String(noChangeCount))}</strong>
+          &nbsp;|&nbsp;
+          RECOUNTS COMPLETED: <strong>${escapeHtml(String(checkedCount))}</strong>
+          &nbsp;|&nbsp;
+          CHANGED: <strong>${escapeHtml(String(changedCount))}</strong>
+          &nbsp;|&nbsp;
+          AVG VAR: <strong>${escapeHtml(avgVariancePct.toFixed(2))}%</strong>
         </div>
-        <div class="muted" style="margin-top:4px;">${escapeHtml(summaryHint)}</div>
+        <div class="muted" style="margin-top:4px;">Recent recounts have produced less than 3% variance. Inventory levels appear consistent -additional recounts may have limited impact.</div>
       `;
       areaList.appendChild(summaryLi);
     }
 
     for (const r of recountRows) {
       const li = document.createElement("li");
+      const viewedKey = getRecountViewedKey(r);
+      const isViewed = viewedRecountKeys.has(viewedKey);
+      const canGray = canGrayRecountRow(r);
+      if (isViewed) {
+        if (canGray) li.classList.add("item-viewed");
+        else li.classList.add("item-unviewed");
+      } else {
+        li.classList.add("item-unviewed");
+      }
       const locLabel = String(r.loc_num || "").padStart(5, "0");
       const reason = (r.reason || "").trim();
       const hasOldTotal = r.old_total !== null && r.old_total !== undefined;
@@ -3205,6 +3299,13 @@ async function loadAreaList() {
       `;
 
       li.addEventListener("click", async () => {
+        setViewedRecountKey(viewedKey);
+        if (canGray) {
+          li.classList.remove("item-unviewed");
+          li.classList.add("item-viewed");
+        } else {
+          li.classList.add("item-unviewed");
+        }
         await loadArea(r.file, {
           jumpLocNum: r.loc_num,
           disableActionModal: true,
@@ -3218,9 +3319,17 @@ async function loadAreaList() {
 
   // ---- Questions tab ----
   if (currentTab === TABS.QUESTIONS) {
+    const viewedQuestionKeys = getViewedQuestionKeys();
     const questionRows = enriched
       .flatMap((e) => e.questions || [])
       .sort((a, b) => {
+        const aViewed = viewedQuestionKeys.has(getQuestionViewedKey(a));
+        const bViewed = viewedQuestionKeys.has(getQuestionViewedKey(b));
+        if (aViewed !== bViewed) return aViewed ? 1 : -1;
+
+        const tb = getQuestionActivityMs(b);
+        const ta = getQuestionActivityMs(a);
+        if (tb !== ta) return tb - ta;
         const aa = String(a.area_num || "");
         const ba = String(b.area_num || "");
         if (aa !== ba) return aa.localeCompare(ba);
@@ -3236,6 +3345,15 @@ async function loadAreaList() {
 
     for (const q of questionRows) {
       const li = document.createElement("li");
+      const viewedKey = getQuestionViewedKey(q);
+      const isViewed = viewedQuestionKeys.has(viewedKey);
+      const canGray = canGrayQuestionRow(q);
+      if (isViewed) {
+        if (canGray) li.classList.add("item-viewed");
+        else li.classList.add("item-unviewed");
+      } else {
+        li.classList.add("item-unviewed");
+      }
       const locLabel = String(q.loc_num || "").padStart(5, "0");
       const msg = (q.message || "").trim();
       const reply = String(q.reply || "").trim();
@@ -3248,6 +3366,13 @@ async function loadAreaList() {
 `;
 
       li.addEventListener("click", async () => {
+        setViewedQuestionKey(viewedKey);
+        if (canGray) {
+          li.classList.remove("item-unviewed");
+          li.classList.add("item-viewed");
+        } else {
+          li.classList.add("item-unviewed");
+        }
         await loadArea(q.file, { jumpLocNum: q.loc_num });
       });
       areaList.appendChild(li);
