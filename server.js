@@ -1,4 +1,4 @@
-// server.js
+﻿// server.js
 const express = require("express");
 const path = require("path");
 const fs = require("fs");
@@ -206,17 +206,48 @@ function mergeLocationActions(baseArr, storedArr, opts = {}) {
 /**
  * Preload every .json in JSON_DIR into reportCache
  */
+function isTrackedAuditReportFile(filename) {
+  const lower = String(filename || "").toLowerCase();
+  if (!lower.endsWith(".json")) return false;
+  return ![
+    "chatlog.json",
+    "cust_master.json",
+    "employees.json",
+    "yesnooption.json",
+  ].includes(lower);
+}
+
+function reloadAuditReportFile(filename, attempt = 0) {
+  if (!isTrackedAuditReportFile(filename)) return;
+
+  const filePath = path.join(JSON_DIR, filename);
+  if (!fs.existsSync(filePath)) {
+    reportCache.delete(filename);
+    console.log(`Removed ${filename} from cache`);
+    return;
+  }
+
+  try {
+    reportCache.set(filename, readJsonFile(filePath));
+    console.log(`Reloaded ${filename} into cache`);
+  } catch (err) {
+    // Export writes can be observed mid-update; retry before giving up.
+    if (attempt < 3) {
+      setTimeout(() => reloadAuditReportFile(filename, attempt + 1), 60 * (attempt + 1));
+      return;
+    }
+    console.warn(`Failed to reload ${filename}: ${err.message}`);
+  }
+}
+
 function preloadReports() {
   const files = fs
-    .readdirSync(REPORT_DIR)
-    .filter((f) => f.toLowerCase().endsWith(".json"))
-    .filter((f) => f.toLowerCase() !== "chatlog.json");
+    .readdirSync(JSON_DIR)
+    .filter((f) => isTrackedAuditReportFile(f));
 
   files.forEach((f) => {
     try {
-      const raw = fs.readFileSync(path.join(JSON_DIR, f), "utf8");
-      const data = JSON.parse(raw);
-      reportCache.set(f, data);
+      reloadAuditReportFile(f);
     } catch (err) {
       console.warn(`Skipping invalid JSON ${f}: ${err.message}`);
     }
@@ -227,24 +258,8 @@ function preloadReports() {
 
 // Watch for changes in JSON_DIR and reload individual files
 fs.watch(JSON_DIR, (event, filename) => {
-  if (!filename || !filename.toLowerCase().endsWith(".json")) return;
-  if (filename.toLowerCase() === "chatlog.json") return;
-
-  const filePath = path.join(JSON_DIR, filename);
-  if (fs.existsSync(filePath)) {
-    // file added or changed → reload
-    try {
-      const raw = fs.readFileSync(filePath, "utf8");
-      reportCache.set(filename, JSON.parse(raw));
-      console.log(`Reloaded ${filename} into cache`);
-    } catch (err) {
-      console.warn(`Failed to reload ${filename}: ${err.message}`);
-    }
-  } else {
-    // file deleted → remove from cache
-    reportCache.delete(filename);
-    console.log(`Removed ${filename} from cache`);
-  }
+  if (!filename) return;
+  reloadAuditReportFile(filename);
 });
 
 function preloadCustMaster() {
@@ -258,7 +273,7 @@ function preloadCustMaster() {
 }
 
 fs.watchFile(CUST_MASTER_FILE, () => {
-  console.log("cust_master.json changed — reloading");
+  console.log("cust_master.json changed â€” reloading");
   preloadCustMaster();
 });
 
@@ -399,7 +414,7 @@ preloadCustMaster();
 loadChatLogFromDisk();
 loadLocationActionsFromDisk();
 
-// allow up to 10 MB of JSON
+// allow up to 10â€¯MB of JSON
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ limit: "10mb", extended: true }));
 
@@ -428,7 +443,7 @@ function saveEmployees(empData) {
  * Helper: returns only those cached JSON entries
  * whose parsed object has enabled === true.
  *
- * callback signature: (err, [ { file, data }, … ])
+ * callback signature: (err, [ { file, data }, â€¦ ])
  */
 function loadEnabledReports(callback) {
   try {
@@ -452,7 +467,7 @@ app.get("/api/sku/:sku", (req, res) => {
   res.status(404).json({ error: "SKU not found" });
 });
 
-// ——— list enabled JSON filenames ———
+// â€”â€”â€” list enabled JSON filenames â€”â€”â€”
 app.get("/api/reports", (req, res) => {
   loadEnabledReports((err, reps) => {
     if (err) return res.status(500).json({ error: err.message });
@@ -470,7 +485,7 @@ app.get("/api/cust_master.json", (req, res) => {
   res.sendFile(path.join(JSON_DIR, "cust_master.json"));
 });
 
-// ——— list all employees across enabled reports ———
+// â€”â€”â€” list all employees across enabled reports â€”â€”â€”
 app.get("/api/employees", (req, res) => {
   loadEnabledReports((err, reps) => {
     if (err) return res.status(500).json({ error: err.message });
@@ -501,14 +516,14 @@ app.get("/api/employees", (req, res) => {
   });
 });
 
-// ——— list all locations across enabled reports ———
+// â€”â€”â€” list all locations across enabled reports â€”â€”â€”
 // server.js
 
 app.get("/api/locations", (req, res) => {
   loadEnabledReports((err, reps) => {
     if (err) return res.status(500).json({ error: err.message });
 
-    // Build a map: area_desc → { area_num, locations:Set }
+    // Build a map: area_desc â†’ { area_num, locations:Set }
     const grouped = {};
     reps.forEach(({ data }) => {
       data.records?.forEach((rec) => {
@@ -554,13 +569,13 @@ app.get("/api/report-exports-test", (req, res) => {
   res.json({ ok: true, count: reportExportCache.size });
 });
 
-// ——— fetch records filtered by employee, location, or SKU (only from enabled) ———
+// â€”â€”â€” fetch records filtered by employee, location, or SKU (only from enabled) â€”â€”â€”
 app.get("/api/records", (req, res) => {
   const { employee, location, sku } = req.query;
   if (!employee && !location && !sku) {
     return res
       .status(400)
-      .json({ error: "Must specify ?employee=… or ?location=… or ?sku=…" });
+      .json({ error: "Must specify ?employee=â€¦ or ?location=â€¦ or ?sku=â€¦" });
   }
 
   loadEnabledReports((err, reps) => {
@@ -668,7 +683,7 @@ app.get("/api/report-exports/:file", (req, res) => {
   res.json(out);
 });
 
-// ─── POST location actions (recount / question) ───
+// â”€â”€â”€ POST location actions (recount / question) â”€â”€â”€
 app.post("/api/report-exports/:file/location-action", (req, res) => {
   const file = req.params.file; // e.g. "40061.json"
   const data = reportExportCache.get(file);
@@ -759,7 +774,7 @@ app.post("/api/report-exports/:file/location-action", (req, res) => {
   return res.json({ success: true, action: actionObj });
 });
 
-// ─── POST /api/reports/:name ───
+// â”€â”€â”€ POST /api/reports/:name â”€â”€â”€
 // Autosave without marking complete (leaves enabled/completedAt untouched)
 app.post("/api/reports/:name", (req, res) => {
   const fileName = req.params.name;
@@ -792,7 +807,7 @@ app.post("/api/reports/:name", (req, res) => {
   }
 });
 
-// ─── POST reviewed flag ───
+// â”€â”€â”€ POST reviewed flag â”€â”€â”€
 // Body: { reviewed: true/false, reviewed_at?: ISO string }
 app.post("/api/report-exports/:file/reviewed", (req, res) => {
   const file = req.params.file; // e.g. "20100.json"
@@ -872,7 +887,7 @@ app.post("/api/chatlog", (req, res) => {
   res.json({ success: true, message: msg });
 });
 
-// ─── POST /api/reports/:name/complete ───
+// â”€â”€â”€ POST /api/reports/:name/complete â”€â”€â”€
 app.post("/api/reports/:name/complete", (req, res) => {
   const fileName = req.params.name;
   const srcPath = path.join(JSON_DIR, fileName);
@@ -884,7 +899,7 @@ app.post("/api/reports/:name/complete", (req, res) => {
     return res.status(404).json({ error: "File not found" });
   }
 
-  // 2) Create the “Complete” directory if needed
+  // 2) Create the â€œCompleteâ€ directory if needed
   fs.mkdirSync(COMPLETE_DIR, { recursive: true });
 
   try {
@@ -902,10 +917,10 @@ app.post("/api/reports/:name/complete", (req, res) => {
     fs.renameSync(tempPath, dstPath);
     fs.unlinkSync(srcPath);
 
-    // remove from the in-memory cache so it’s no longer treated as “enabled”
+    // remove from the in-memory cache so itâ€™s no longer treated as â€œenabledâ€
     reportCache.delete(fileName);
 
-    // 5) Update employee‑completion flags
+    // 5) Update employeeâ€‘completion flags
     const empData = loadEmployees();
     req.body.records.forEach((rec) => {
       const nm = rec.employee_name;
@@ -914,7 +929,7 @@ app.post("/api/reports/:name/complete", (req, res) => {
       }
     });
 
-    // 6) Re‐scan enabled reports and finalize each employee’s status
+    // 6) Reâ€scan enabled reports and finalize each employeeâ€™s status
     loadEnabledReports((err2, reps2) => {
       if (err2) {
         console.error("loadEnabledReports failed:", err2);
@@ -945,3 +960,4 @@ app.post("/api/reports/:name/complete", (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running at http://localhost:${PORT}`);
 });
+

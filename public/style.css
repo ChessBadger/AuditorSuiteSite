@@ -702,3 +702,128 @@ body.admin-mode #admin-badge {
   border-radius: 6px;
   box-shadow: var(--shadow);
 }
+
+/* =============================
+   Tablet UX Overhaul (Index)
+   ============================= */
+.view-toggle {
+  position: sticky;
+  top: 0;
+  z-index: 35;
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+}
+
+.view-toggle button,
+.sku-search button {
+  min-height: 46px;
+}
+
+.sku-search input {
+  min-height: 46px;
+}
+
+.container {
+  width: min(1360px, calc(100% - 1rem));
+  margin: 0.6rem auto 0.8rem;
+  height: calc(100vh - 11rem);
+}
+
+#record-container {
+  padding: 0.65rem;
+}
+
+.record-header {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.record-table {
+  min-width: 760px;
+}
+
+.sidebar button,
+.record-list button,
+.complete-btn {
+  min-height: 48px;
+}
+
+.sidebar-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.36);
+  z-index: 25;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+
+.sidebar-backdrop.show {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+@media (max-width: 1100px) {
+  body.sidebar-open {
+    overflow: hidden;
+  }
+
+  .container {
+    position: relative;
+    width: calc(100% - 0.5rem);
+    height: calc(100vh - 10.8rem);
+    margin-top: 0.45rem;
+  }
+
+  .sidebar-toggle {
+    top: 0.45rem;
+    left: 0.45rem;
+    z-index: 45;
+  }
+
+  .sidebar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: min(80vw, 360px);
+    min-width: min(80vw, 360px);
+    z-index: 40;
+    transform: translateX(0);
+    transition: transform 0.2s ease;
+    box-shadow: 0 24px 48px rgba(0, 0, 0, 0.2);
+  }
+
+  .container.collapsed .sidebar {
+    width: min(80vw, 360px);
+    min-width: min(80vw, 360px);
+    padding: 0.5rem;
+    border-right: 1px solid var(--border);
+    transform: translateX(-106%);
+  }
+
+  .content {
+    flex: 1;
+  }
+
+  .view-toggle {
+    width: calc(100% - 0.5rem);
+    margin-top: 0.4rem;
+    padding: 0.45rem 0.55rem 0.5rem;
+    justify-content: flex-start;
+  }
+
+  .sku-search {
+    margin-left: 0;
+  }
+
+  .logo {
+    max-height: 42px;
+  }
+}

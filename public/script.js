@@ -493,11 +493,68 @@ document.addEventListener("DOMContentLoaded", () => {
   // Sidebar show/hide
   const sidebarToggle = document.getElementById("sidebar-toggle");
   const containerEl = document.querySelector(".container");
+  const TABLET_BREAKPOINT = 1100;
+  let sidebarBackdrop = null;
+
+  function isTabletLayout() {
+    return window.matchMedia(`(max-width: ${TABLET_BREAKPOINT}px)`).matches;
+  }
+
+  function ensureSidebarBackdrop() {
+    if (sidebarBackdrop) return;
+    sidebarBackdrop = document.createElement("div");
+    sidebarBackdrop.id = "sidebar-backdrop";
+    sidebarBackdrop.className = "sidebar-backdrop";
+    sidebarBackdrop.addEventListener("click", () => {
+      closeSidebar();
+    });
+    document.body.appendChild(sidebarBackdrop);
+  }
+
+  function openSidebar() {
+    containerEl.classList.remove("collapsed");
+    if (isTabletLayout()) {
+      document.body.classList.add("sidebar-open");
+      ensureSidebarBackdrop();
+      sidebarBackdrop.classList.add("show");
+    }
+  }
+
+  function closeSidebar() {
+    if (!isTabletLayout()) return;
+    containerEl.classList.add("collapsed");
+    document.body.classList.remove("sidebar-open");
+    ensureSidebarBackdrop();
+    sidebarBackdrop.classList.remove("show");
+  }
+
+  function toggleSidebar() {
+    if (isTabletLayout()) {
+      const isOpen = !containerEl.classList.contains("collapsed");
+      if (isOpen) closeSidebar();
+      else openSidebar();
+      return;
+    }
+    containerEl.classList.toggle("collapsed");
+    const isCollapsed = containerEl.classList.contains("collapsed");
+    localStorage.setItem("sidebarCollapsed", isCollapsed);
+  }
+
+  function syncSidebarLayout() {
+    const desktopCollapsed = localStorage.getItem("sidebarCollapsed") === "true";
+    if (isTabletLayout()) {
+      closeSidebar();
+      return;
+    }
+    document.body.classList.remove("sidebar-open");
+    ensureSidebarBackdrop();
+    sidebarBackdrop.classList.remove("show");
+    containerEl.classList.toggle("collapsed", desktopCollapsed);
+  }
 
   // Read last state from localStorage (optional)
-  if (localStorage.getItem("sidebarCollapsed") === "true") {
-    containerEl.classList.add("collapsed");
-  }
+  syncSidebarLayout();
+  window.addEventListener("resize", syncSidebarLayout);
 
   document.addEventListener("focusin", (e) => {
     if (e.target.tagName === "INPUT") {
@@ -663,21 +720,19 @@ document.addEventListener("DOMContentLoaded", () => {
   btnSKU.addEventListener("click", searchBySKU);
 
   btnLoc.addEventListener("click", () => {
-    containerEl.classList.remove("collapsed");
+    openSidebar();
   });
 
   btnRefresh.addEventListener("click", () => {
-    containerEl.classList.remove("collapsed");
+    openSidebar();
   });
 
   btnEmp.addEventListener("click", () => {
-    containerEl.classList.remove("collapsed");
+    openSidebar();
   });
   // Toggle on click
   sidebarToggle.addEventListener("click", () => {
-    containerEl.classList.toggle("collapsed");
-    const isCollapsed = containerEl.classList.contains("collapsed");
-    localStorage.setItem("sidebarCollapsed", isCollapsed);
+    toggleSidebar();
   });
 
   btnEmp.addEventListener("click", () => setView("employee"));
@@ -789,6 +844,7 @@ document.addEventListener("DOMContentLoaded", () => {
                   .forEach((b) => b.classList.remove("active"));
                 btn.classList.add("active");
                 showLocationTable(loc);
+                closeSidebar();
               });
               locLi.appendChild(btn);
               nestedUl.appendChild(locLi);
@@ -833,6 +889,7 @@ document.addEventListener("DOMContentLoaded", () => {
                   .forEach((b) => b.classList.remove("active"));
                 btn.classList.add("active");
                 loadEmployeeLocations(name);
+                closeSidebar();
               });
             }
 
