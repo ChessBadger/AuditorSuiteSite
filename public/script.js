@@ -649,16 +649,29 @@ document.addEventListener("DOMContentLoaded", () => {
 
         recContainer.innerHTML = "";
 
+        function openSkuResultLocation(locString) {
+          currentView = "location";
+          btnSKU.classList.remove("active");
+          btnEmp.classList.remove("active");
+          btnLoc.classList.add("active");
+          showLocationTable(locString);
+        }
+
         // For each location, render a header + table
         Object.entries(byLoc).forEach(([loc, rows]) => {
-          // Location header
-          const header = document.createElement("div");
-          header.classList.add("record-header");
+          // Location header (click to open the editable location view)
+          const header = document.createElement("button");
+          header.type = "button";
+          header.classList.add("sku-result-header");
           header.textContent = loc;
+          header.title = "Open this location";
+          header.addEventListener("click", () => openSkuResultLocation(loc));
           recContainer.appendChild(header);
 
-          // Table of rows for this location
-          const table = buildRecordTable(rows);
+          // Table of rows for this location (rows are also clickable)
+          const table = buildRecordTable(rows, {
+            onRowClick: () => openSkuResultLocation(loc),
+          });
           recContainer.appendChild(table);
         });
       })
@@ -671,7 +684,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Helper: given an array of record‐objects, build the same table your
   // showLocationTable() does, but without refetching.
-  function buildRecordTable(data) {
+  function buildRecordTable(data, opts = {}) {
+    const onRowClick =
+      typeof opts.onRowClick === "function" ? opts.onRowClick : null;
     // figure out which columns actually have data
     const visibleCols = ALL_COLUMNS.filter((col) =>
       data.some(
@@ -698,6 +713,11 @@ document.addEventListener("DOMContentLoaded", () => {
     let grandTotal = 0;
     data.forEach((row) => {
       const tr = document.createElement("tr");
+      if (onRowClick) {
+        tr.classList.add("sku-result-row");
+        tr.title = "Open this location";
+        tr.addEventListener("click", onRowClick);
+      }
       visibleCols.forEach((col) => {
         const td = document.createElement("td");
         if (col.key === "EXT_PRICE") {
@@ -761,10 +781,11 @@ document.addEventListener("DOMContentLoaded", () => {
   btnRefresh.addEventListener("click", async () => {
     openSidebar();
     playRefreshFeedback();
-    await setView("current");
+    await setView("current", { forceRefresh: true });
   });
 
-  function setView(view) {
+  function setView(view, opts = {}) {
+    const forceRefresh = opts.forceRefresh === true;
     if (view == "current") {
       currentView = currentView;
     } else {
@@ -774,7 +795,7 @@ document.addEventListener("DOMContentLoaded", () => {
     btnLoc.classList.toggle("active", view === "location");
     recContainer.innerHTML =
       '<p class="placeholder">Select an item to view details</p>';
-    return loadSidebarItems();
+    return loadSidebarItems({ forceRefresh });
   }
 
   // 1) Sort helper: call this on any <table class="record-table">
@@ -826,11 +847,14 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  function loadSidebarItems() {
+  function loadSidebarItems(opts = {}) {
+    const forceRefresh = opts.forceRefresh === true;
     const prevHtml = listEl.innerHTML;
     listEl.innerHTML = "<li>Loading…</li>";
     const endpoint = currentView === "employee" ? "employees" : "locations";
-    return fetchJsonWithMemCache(`/api/${endpoint}`, { preferCache: true })
+    return fetchJsonWithMemCache(`/api/${endpoint}`, {
+      preferCache: !forceRefresh,
+    })
       .then(({ data }) => data)
       .then((items) => {
         listEl.innerHTML = "";
@@ -1119,7 +1143,7 @@ document.addEventListener("DOMContentLoaded", () => {
           const resp = await res.json();
           if (resp.success) {
             await showAlertModal("Location marked complete.", "Complete Location");
-            setView(currentView);
+            await setView(currentView, { forceRefresh: true });
           } else {
             await showAlertModal(
               "Error: " + (resp.error || "Unknown"),

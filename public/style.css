@@ -372,6 +372,25 @@ button[disabled] {
   font-weight: 700;
 }
 
+.sku-result-header {
+  display: block;
+  width: 100%;
+  margin: 0.75rem 0 0.4rem;
+  padding: 0.7rem 0.95rem;
+  text-align: left;
+  font-weight: 700;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+}
+.sku-result-header:hover {
+  background: var(--brand-50);
+  border-color: #f1c9c9;
+}
+
 /* Primary action buttons */
 .complete-btn {
   display: inline-flex;
@@ -439,6 +458,12 @@ button[disabled] {
 }
 .record-table tbody tr:nth-child(even) {
   background: var(--zebra);
+}
+.record-table tbody tr.sku-result-row {
+  cursor: pointer;
+}
+.record-table tbody tr.sku-result-row:hover {
+  background: var(--brand-50);
 }
 
 /* Total row pinned to bottom when possible */
