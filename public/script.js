@@ -16,6 +16,141 @@ document.addEventListener("DOMContentLoaded", () => {
   const fullscreenBtn = document.getElementById("btn-fullscreen");
   const adminBadge = document.getElementById("admin-badge");
 
+  function showModalDialog({
+    title = "Notice",
+    message = "",
+    buttons = [],
+    inputConfig = null,
+  }) {
+    return new Promise((resolve) => {
+      const overlay = document.createElement("div");
+      overlay.className = "app-modal-overlay";
+      overlay.setAttribute("role", "presentation");
+
+      const dialog = document.createElement("div");
+      dialog.className = "app-modal";
+      dialog.setAttribute("role", "dialog");
+      dialog.setAttribute("aria-modal", "true");
+
+      const heading = document.createElement("h2");
+      heading.className = "app-modal-title";
+      heading.textContent = title;
+      dialog.appendChild(heading);
+
+      const body = document.createElement("p");
+      body.className = "app-modal-message";
+      body.textContent = message;
+      dialog.appendChild(body);
+
+      let inputEl = null;
+      if (inputConfig) {
+        inputEl = document.createElement("input");
+        inputEl.className = "app-modal-input";
+        inputEl.type = inputConfig.type || "text";
+        inputEl.placeholder = inputConfig.placeholder || "";
+        inputEl.value = inputConfig.value || "";
+        dialog.appendChild(inputEl);
+      }
+
+      const buttonRow = document.createElement("div");
+      buttonRow.className = "app-modal-actions";
+
+      function close(value) {
+        document.removeEventListener("keydown", keyHandler, true);
+        overlay.remove();
+        resolve(value);
+      }
+
+      function keyHandler(event) {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+        }
+      }
+
+      buttons.forEach((btn) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = btn.label;
+        button.className = `app-modal-btn ${btn.variant === "primary" ? "primary" : ""}`;
+        button.addEventListener("click", () => {
+          if (btn.submit && inputEl) {
+            close(inputEl.value.trim());
+            return;
+          }
+          close(btn.value);
+        });
+        buttonRow.appendChild(button);
+      });
+
+      overlay.addEventListener("click", (event) => {
+        if (event.target === overlay) {
+          event.preventDefault();
+        }
+      });
+      dialog.addEventListener("click", (event) => event.stopPropagation());
+
+      dialog.appendChild(buttonRow);
+      overlay.appendChild(dialog);
+      document.body.appendChild(overlay);
+
+      document.addEventListener("keydown", keyHandler, true);
+
+      if (inputEl) inputEl.focus();
+      else {
+        const firstButton = buttonRow.querySelector("button");
+        if (firstButton) firstButton.focus();
+      }
+    });
+  }
+
+  function showAlertModal(message, title = "Notice") {
+    return showModalDialog({
+      title,
+      message,
+      buttons: [{ label: "OK", value: true, variant: "primary" }],
+    });
+  }
+
+  function showConfirmModal(
+    message,
+    {
+      title = "Confirm",
+      confirmLabel = "Confirm",
+      cancelLabel = "Cancel",
+    } = {},
+  ) {
+    return showModalDialog({
+      title,
+      message,
+      buttons: [
+        { label: cancelLabel, value: false },
+        { label: confirmLabel, value: true, variant: "primary" },
+      ],
+    });
+  }
+
+  function showPromptModal(
+    message,
+    {
+      title = "Input Required",
+      placeholder = "",
+      type = "text",
+      submitLabel = "Submit",
+      cancelLabel = "Cancel",
+    } = {},
+  ) {
+    return showModalDialog({
+      title,
+      message,
+      inputConfig: { placeholder, type },
+      buttons: [
+        { label: cancelLabel, value: null },
+        { label: submitLabel, submit: true, variant: "primary" },
+      ],
+    });
+  }
+
   // In-memory cache for last-known-good API data (no localStorage).
   const memCache = new Map();
   const recordsByLocation = new Map();
@@ -214,7 +349,9 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     } catch (e) {
       console.error(e);
-      alert("Fullscreen could not be started (browser may block it).");
+      await showAlertModal(
+        "Fullscreen could not be started (browser may block it).",
+      );
     } finally {
       refreshFullscreenBtnLabel();
       showFsOverlayIfNeeded();
@@ -239,7 +376,7 @@ document.addEventListener("DOMContentLoaded", () => {
     toggleFullscreen();
   });
 
-  logoEl?.addEventListener("click", () => {
+  logoEl?.addEventListener("click", async () => {
     if (adminMode) {
       setAdminMode(false);
       return;
@@ -256,12 +393,15 @@ document.addEventListener("DOMContentLoaded", () => {
       logoTapCount = 0;
       if (logoTapResetTimer) clearTimeout(logoTapResetTimer);
 
-      const pin = window.prompt("Enter admin PIN");
+      const pin = await showPromptModal("Enter admin PIN", {
+        title: "Admin Access",
+        submitLabel: "Unlock",
+      });
       if (pin === ADMIN_PIN) {
         setAdminMode(true);
         refreshFullscreenBtnLabel();
       } else if (pin !== null) {
-        alert("Incorrect PIN.");
+        await showAlertModal("Incorrect PIN.", "Admin Access");
       }
     }
   });
@@ -405,9 +545,12 @@ document.addEventListener("DOMContentLoaded", () => {
       console.warn("Could not load YesNoOption.json:", err);
     });
 
-  function searchBySKU() {
+  async function searchBySKU() {
     const sku = skuInput.value.trim();
-    if (!sku) return alert("Please enter a SKU.");
+    if (!sku) {
+      await showAlertModal("Please enter a SKU.", "SKU Search");
+      return;
+    }
     skuInput.value = "";
     const prevHtml = recContainer.innerHTML;
     recContainer.innerHTML = '<p class="placeholder">Searching for SKU…</p>';
@@ -851,7 +994,7 @@ document.addEventListener("DOMContentLoaded", () => {
       completeBtn.textContent = "Mark Location Complete";
       completeBtn.classList.add("complete-btn");
 
-      completeBtn.addEventListener("click", () => {
+      completeBtn.addEventListener("click", async () => {
         // validate all inputs
         const tableEl = recContainer.querySelector("table");
         const allInputs = tableEl ? tableEl.querySelectorAll("input") : [];
@@ -862,7 +1005,11 @@ document.addEventListener("DOMContentLoaded", () => {
           }
         }
 
-        if (!confirm("Are you sure you want to mark this location complete?"))
+        const confirmed = await showConfirmModal(
+          "Are you sure you want to mark this location complete?",
+          { title: "Complete Location", confirmLabel: "Yes, Complete" },
+        );
+        if (!confirmed)
           return;
 
         // filter out records that were added and then deleted
@@ -876,27 +1023,31 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const payload = { records: toSend };
         console.log("Sending complete payload:", payload);
-        postJsonQueued(
-          `/api/reports/${encodeURIComponent(fileName)}/complete`,
-          payload,
-        )
-          .then(({ res, queued }) => {
-            if (queued) {
-              alert("Offline. Completion queued and will send when reconnected.");
-              return;
-            }
-            return res.json();
-          })
-          .then((resp) => {
-            if (!resp) return;
-            if (resp.success) {
-              alert("Location marked complete.");
-              setView(currentView);
-            } else {
-              alert("Error: " + (resp.error || "Unknown"));
-            }
-          })
-          .catch(() => alert("Network error"));
+        try {
+          const { res, queued } = await postJsonQueued(
+            `/api/reports/${encodeURIComponent(fileName)}/complete`,
+            payload,
+          );
+          if (queued) {
+            await showAlertModal(
+              "Offline. Completion queued and will send when reconnected.",
+              "Complete Location",
+            );
+            return;
+          }
+          const resp = await res.json();
+          if (resp.success) {
+            await showAlertModal("Location marked complete.", "Complete Location");
+            setView(currentView);
+          } else {
+            await showAlertModal(
+              "Error: " + (resp.error || "Unknown"),
+              "Complete Location",
+            );
+          }
+        } catch {
+          await showAlertModal("Network error", "Complete Location");
+        }
         containerEl.classList.remove("collapsed");
       });
       btnGroup.appendChild(completeBtn);
