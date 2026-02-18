@@ -740,10 +740,6 @@ document.addEventListener("DOMContentLoaded", () => {
     openSidebar();
   });
 
-  btnRefresh.addEventListener("click", () => {
-    openSidebar();
-  });
-
   btnEmp.addEventListener("click", () => {
     openSidebar();
   });
@@ -755,7 +751,18 @@ document.addEventListener("DOMContentLoaded", () => {
   btnEmp.addEventListener("click", () => setView("employee"));
   btnLoc.addEventListener("click", () => setView("location"));
 
-  btnRefresh.addEventListener("click", () => setView("current"));
+  function playRefreshFeedback() {
+    btnRefresh.classList.remove("refresh-anim");
+    // Force reflow so the CSS animation retriggers on repeated clicks.
+    void btnRefresh.offsetWidth;
+    btnRefresh.classList.add("refresh-anim");
+  }
+
+  btnRefresh.addEventListener("click", async () => {
+    openSidebar();
+    playRefreshFeedback();
+    await setView("current");
+  });
 
   function setView(view) {
     if (view == "current") {
@@ -767,7 +774,7 @@ document.addEventListener("DOMContentLoaded", () => {
     btnLoc.classList.toggle("active", view === "location");
     recContainer.innerHTML =
       '<p class="placeholder">Select an item to view details</p>';
-    loadSidebarItems();
+    return loadSidebarItems();
   }
 
   // 1) Sort helper: call this on any <table class="record-table">
@@ -823,7 +830,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const prevHtml = listEl.innerHTML;
     listEl.innerHTML = "<li>Loading…</li>";
     const endpoint = currentView === "employee" ? "employees" : "locations";
-    fetchJsonWithMemCache(`/api/${endpoint}`, { preferCache: true })
+    return fetchJsonWithMemCache(`/api/${endpoint}`, { preferCache: true })
       .then(({ data }) => data)
       .then((items) => {
         listEl.innerHTML = "";

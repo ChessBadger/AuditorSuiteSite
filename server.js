@@ -368,8 +368,7 @@ fs.watch(JSON_DIR, (event, filename) => {
 
 function preloadCustMaster() {
   try {
-    const raw = fs.readFileSync(CUST_MASTER_FILE, "utf8");
-    skuMaster = JSON.parse(raw);
+    skuMaster = readJsonFile(CUST_MASTER_FILE);
     console.log(`Preloaded ${skuMaster.length} SKUs into memory`);
   } catch (err) {
     console.warn("Failed to preload cust_master.json:", err.message);
@@ -531,7 +530,7 @@ const EMP_FILE = path.join(JSON_DIR, "employees.json");
 function loadEmployees() {
   if (fs.existsSync(EMP_FILE)) {
     try {
-      return JSON.parse(fs.readFileSync(EMP_FILE, "utf8"));
+      return readJsonFile(EMP_FILE);
     } catch {
       return {};
     }
@@ -861,7 +860,7 @@ app.post("/api/reports/:name", (req, res) => {
   }
   try {
     // 1) Load the existing JSON
-    const obj = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    const obj = readJsonFile(filePath);
 
     // 2) Replace only the records array
     if (Array.isArray(req.body.records)) {
@@ -983,7 +982,7 @@ app.post("/api/reports/:name/complete", (req, res) => {
 
   try {
     // 3) Load and update the JSON
-    const obj = JSON.parse(fs.readFileSync(srcPath, "utf8"));
+    const obj = readJsonFile(srcPath);
     if (Array.isArray(req.body.records)) {
       obj.records = req.body.records;
     }
