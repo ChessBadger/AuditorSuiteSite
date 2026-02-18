@@ -157,9 +157,26 @@ document.addEventListener("DOMContentLoaded", () => {
   const pendingWrites = [];
   let flushInFlight = false;
 
-  async function fetchJsonWithMemCache(url) {
+  async function fetchJsonWithMemCache(url, opts = {}) {
+    const preferCache = opts.preferCache === true;
+
+    if (preferCache && memCache.has(url)) {
+      const cached = memCache.get(url);
+      // Background refresh keeps cache warm without blocking UI.
+      fetch(url, { cache: "no-store" })
+        .then((res) => {
+          if (!res.ok) return null;
+          return res.json();
+        })
+        .then((fresh) => {
+          if (fresh !== null && fresh !== undefined) memCache.set(url, fresh);
+        })
+        .catch(() => {});
+      return { data: cached, fromCache: true };
+    }
+
     try {
-      const res = await fetch(url, { cache: "no-cache" });
+      const res = await fetch(url, { cache: "no-store" });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       memCache.set(url, data);
@@ -806,7 +823,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const prevHtml = listEl.innerHTML;
     listEl.innerHTML = "<li>Loading…</li>";
     const endpoint = currentView === "employee" ? "employees" : "locations";
-    fetchJsonWithMemCache(`/api/${endpoint}`)
+    fetchJsonWithMemCache(`/api/${endpoint}`, { preferCache: true })
       .then(({ data }) => data)
       .then((items) => {
         listEl.innerHTML = "";

@@ -16,6 +16,107 @@ const reportCache = new Map();
 // NEW: report-export cache (area json files)
 const reportExportCache = new Map();
 
+let enabledDataIndex = {
+  enabledReports: [],
+  employeeNames: [],
+  locationGroups: [],
+  recordsByEmployee: new Map(),
+  recordsByLocation: new Map(),
+  recordsBySku: new Map(),
+};
+
+let enabledIndexRebuildTimer = null;
+
+function pushMapArray(map, key, value) {
+  if (!key) return;
+  if (!map.has(key)) map.set(key, []);
+  map.get(key).push(value);
+}
+
+function rebuildEnabledDataIndex() {
+  const enabledReports = [];
+  const recordsByEmployee = new Map();
+  const recordsByLocation = new Map();
+  const recordsBySku = new Map();
+  const employeeNamesSet = new Set();
+  const groupedLocations = Object.create(null);
+
+  for (const [file, data] of reportCache.entries()) {
+    if (!data || data.enabled !== true) continue;
+    enabledReports.push({ file, data });
+
+    const records = Array.isArray(data.records) ? data.records : [];
+    for (const rec of records) {
+      if (!rec || typeof rec !== "object") continue;
+      const wrapped = Object.assign({ file }, rec);
+
+      const employee = String(rec.employee_name ?? "").trim();
+      if (employee) {
+        employeeNamesSet.add(employee);
+        pushMapArray(recordsByEmployee, employee, wrapped);
+      }
+
+      const hasLocBits =
+        rec.LOC_NUM !== null &&
+        rec.LOC_NUM !== undefined &&
+        String(rec.LOC_NUM).trim() !== "" &&
+        rec.loc_desc !== null &&
+        rec.loc_desc !== undefined &&
+        String(rec.loc_desc).trim() !== "";
+      if (hasLocBits) {
+        const locKey = `${rec.LOC_NUM} - ${rec.loc_desc}`;
+        pushMapArray(recordsByLocation, locKey, wrapped);
+      }
+
+      const sku = String(rec.SKU ?? "").trim();
+      if (sku) pushMapArray(recordsBySku, sku, wrapped);
+
+      const area_desc = String(rec.area_desc ?? "").trim();
+      const area_num = Number(rec.AREA_NUM);
+      if (!area_desc || !Number.isFinite(area_num) || !hasLocBits) continue;
+
+      if (!groupedLocations[area_desc]) {
+        groupedLocations[area_desc] = {
+          area_num,
+          locations: new Set(),
+        };
+      } else if (area_num < groupedLocations[area_desc].area_num) {
+        groupedLocations[area_desc].area_num = area_num;
+      }
+
+      groupedLocations[area_desc].locations.add(`${rec.LOC_NUM} - ${rec.loc_desc}`);
+    }
+  }
+
+  const locationGroups = Object.entries(groupedLocations)
+    .map(([area_desc, { area_num, locations }]) => ({
+      area_desc,
+      area_num,
+      locations: Array.from(locations).sort(),
+    }))
+    .sort((a, b) => a.area_num - b.area_num)
+    .map(({ area_desc, locations }) => ({ area_desc, locations }));
+
+  enabledReports.sort((a, b) => String(a.file).localeCompare(String(b.file)));
+
+  enabledDataIndex = {
+    enabledReports,
+    employeeNames: Array.from(employeeNamesSet).sort(),
+    locationGroups,
+    recordsByEmployee,
+    recordsByLocation,
+    recordsBySku,
+  };
+}
+
+function scheduleEnabledDataIndexRebuild() {
+  if (enabledIndexRebuildTimer) return;
+  enabledIndexRebuildTimer = setTimeout(() => {
+    enabledIndexRebuildTimer = null;
+    rebuildEnabledDataIndex();
+  }, 40);
+}
+
 let skuMaster = [];
 const CUST_MASTER_FILE = path.join(JSON_DIR, "cust_master.json");
 
@@ -224,12 +325,14 @@ function reloadAuditReportFile(filename, attempt = 0) {
   if (!fs.existsSync(filePath)) {
     reportCache.delete(filename);
     console.log(`Removed ${filename} from cache`);
+    scheduleEnabledDataIndexRebuild();
     return;
   }
 
   try {
     reportCache.set(filename, readJsonFile(filePath));
     console.log(`Reloaded ${filename} into cache`);
+    scheduleEnabledDataIndexRebuild();
   } catch (err) {
     // Export writes can be observed mid-update; retry before giving up.
     if (attempt < 3) {
@@ -253,6 +356,7 @@ function preloadReports() {
     }
   });
 
+  rebuildEnabledDataIndex();
   console.log(`Preloaded ${reportCache.size} JSON files into memory`);
 }
 
@@ -447,12 +551,7 @@ function saveEmployees(empData) {
  */
 function loadEnabledReports(callback) {
   try {
-    const results = [];
-    for (const [file, data] of reportCache.entries()) {
-      if (data && data.enabled === true) {
-        results.push({ file, data });
-      }
-    }
+    const results = enabledDataIndex.enabledReports;
     // simulate async
     process.nextTick(() => callback(null, results));
   } catch (err) {
@@ -487,77 +586,33 @@ app.get("/api/cust_master.json", (req, res) => {
 
 // â€”â€”â€” list all employees across enabled reports â€”â€”â€”
 app.get("/api/employees", (req, res) => {
-  loadEnabledReports((err, reps) => {
-    if (err) return res.status(500).json({ error: err.message });
-
-    // 1. collect all names still present in enabled reports
-    const names = new Set();
-    reps.forEach((r) => {
-      r.data.records?.forEach((rec) => {
-        if (rec.employee_name) names.add(rec.employee_name);
-      });
-    });
-
-    // 2. load or initialize employees.json
+  try {
+    const names = enabledDataIndex.employeeNames;
     const empData = loadEmployees();
+    let changed = false;
 
-    // 3. for any employee that now has audits, clear the completed flag
-    names.forEach((n) => {
-      empData[n] = false;
-    });
-    // 4. save any additions
-    saveEmployees(empData);
+    for (const n of names) {
+      if (empData[n] !== false) {
+        empData[n] = false;
+        changed = true;
+      }
+    }
+    if (changed) saveEmployees(empData);
 
-    // 5. respond with sorted array of { name, completed }
     const out = Object.keys(empData)
       .sort()
       .map((n) => ({ name: n, completed: empData[n] }));
     res.json(out);
-  });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // â€”â€”â€” list all locations across enabled reports â€”â€”â€”
 // server.js
 
 app.get("/api/locations", (req, res) => {
-  loadEnabledReports((err, reps) => {
-    if (err) return res.status(500).json({ error: err.message });
-
-    // Build a map: area_desc â†’ { area_num, locations:Set }
-    const grouped = {};
-    reps.forEach(({ data }) => {
-      data.records?.forEach((rec) => {
-        const { area_desc, AREA_NUM, LOC_NUM, loc_desc } = rec;
-        if (!area_desc || AREA_NUM == null || !LOC_NUM || !loc_desc) return;
-
-        if (!grouped[area_desc]) {
-          grouped[area_desc] = {
-            area_num: AREA_NUM,
-            locations: new Set(),
-          };
-        }
-        // In case the same area_desc appears with different AREA_NUMs,
-        // keep the lowest one
-        grouped[area_desc].area_num = Math.min(
-          grouped[area_desc].area_num,
-          AREA_NUM,
-        );
-        grouped[area_desc].locations.add(`${LOC_NUM} - ${loc_desc}`);
-      });
-    });
-
-    // Convert to array, sort by area_num, then strip area_num before sending
-    const result = Object.entries(grouped)
-      .map(([area_desc, { area_num, locations }]) => ({
-        area_desc,
-        area_num,
-        locations: Array.from(locations).sort(),
-      }))
-      .sort((a, b) => a.area_num - b.area_num)
-      .map(({ area_desc, locations }) => ({ area_desc, locations }));
-
-    res.json(result);
-  });
+  res.json(enabledDataIndex.locationGroups);
 });
 
 // near the top, after your other route definitions
@@ -578,24 +633,20 @@ app.get("/api/records", (req, res) => {
       .json({ error: "Must specify ?employee=â€¦ or ?location=â€¦ or ?sku=â€¦" });
   }
 
-  loadEnabledReports((err, reps) => {
-    if (err) return res.status(500).json({ error: err.message });
-
-    const matches = [];
-    reps.forEach((r) => {
-      r.data.records?.forEach((rec) => {
-        if (
-          (employee && rec.employee_name === employee) ||
-          (location && `${rec.LOC_NUM} - ${rec.loc_desc}` === location) ||
-          (sku && String(rec.SKU) === String(sku))
-        ) {
-          matches.push(Object.assign({ file: r.file }, rec));
-        }
-      });
-    });
-
-    res.json(matches);
-  });
+  try {
+    if (employee) {
+      return res.json(enabledDataIndex.recordsByEmployee.get(String(employee)) || []);
+    }
+    if (location) {
+      return res.json(enabledDataIndex.recordsByLocation.get(String(location)) || []);
+    }
+    if (sku) {
+      return res.json(enabledDataIndex.recordsBySku.get(String(sku)) || []);
+    }
+    return res.json([]);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
 });
 
 // List available area exports (EXCLUDES chatlog.json)
@@ -615,6 +666,48 @@ app.get("/api/report-exports", (req, res) => {
     .sort((a, b) => String(a.area_num).localeCompare(String(b.area_num)));
 
   res.json(list);
+});
+
+function buildMergedReportExportForResponse(file, base) {
+  if (!base) return null;
+  const out = JSON.parse(JSON.stringify(base));
+  const stored = getStoredActionsForFile(file);
+  const baseActions = []
+    .concat(
+      Array.isArray(out.location_actions) ? out.location_actions : [],
+      Array.isArray(out.locationActions) ? out.locationActions : [],
+      Array.isArray(out.actions) ? out.actions : [],
+    );
+  out.location_actions = mergeLocationActions(baseActions, stored);
+  return out;
+}
+
+// Bundled list for fast report home-screen load/refresh:
+// one request returns list metadata + per-file JSON content.
+app.get("/api/report-exports-bundle", (req, res) => {
+  const items = Array.from(reportExportCache.entries())
+    .filter(([file, data]) => {
+      if (!data || !data.area_num) return false;
+      if (String(file).toLowerCase() === "chatlog.json") return false;
+      return true;
+    })
+    .map(([file, data]) => {
+      const merged = buildMergedReportExportForResponse(file, data);
+      return {
+        file,
+        area_num: merged?.area_num ?? data.area_num,
+        area_desc: merged?.area_desc ?? data.area_desc ?? "",
+        location_count: Array.isArray(merged?.locations)
+          ? merged.locations.length
+          : Array.isArray(data.locations)
+            ? data.locations.length
+            : 0,
+        data: merged || data,
+      };
+    })
+    .sort((a, b) => String(a.area_num).localeCompare(String(b.area_num)));
+
+  res.json(items);
 });
 
 // --------------------
@@ -663,23 +756,7 @@ app.get("/api/report-exports/:file", (req, res) => {
   const file = req.params.file;
   const base = reportExportCache.get(file);
   if (!base) return res.status(404).json({ error: "Report export not found" });
-
-  // clone so we don't permanently mutate the cached base export object
-  const out = JSON.parse(JSON.stringify(base));
-
-  const stored = getStoredActionsForFile(file);
-  const baseActions = []
-    .concat(
-      Array.isArray(out.location_actions) ? out.location_actions : [],
-      Array.isArray(out.locationActions) ? out.locationActions : [],
-      Array.isArray(out.actions) ? out.actions : [],
-    );
-
-  // Merge base export actions with dedicated store actions.
-  // This preserves existing replies embedded in export files while still
-  // allowing store-backed updates and dedupe.
-  out.location_actions = mergeLocationActions(baseActions, stored);
-
+  const out = buildMergedReportExportForResponse(file, base);
   res.json(out);
 });
 
@@ -798,7 +875,9 @@ app.post("/api/reports/:name", (req, res) => {
     fs.writeFileSync(tmpPath, JSON.stringify(obj, null, 2), "utf8");
     fs.renameSync(tmpPath, filePath);
 
-    // 4) Let the existing fs.watch(JSON_DIR) reload it into reportCache :contentReference[oaicite:0]{index=0}
+    // Keep in-memory cache/index hot without waiting for fs.watch timing.
+    reportCache.set(fileName, obj);
+    scheduleEnabledDataIndexRebuild();
 
     return res.json({ success: true });
   } catch (err) {
@@ -919,6 +998,7 @@ app.post("/api/reports/:name/complete", (req, res) => {
 
     // remove from the in-memory cache so itâ€™s no longer treated as â€œenabledâ€
     reportCache.delete(fileName);
+    rebuildEnabledDataIndex();
 
     // 5) Update employeeâ€‘completion flags
     const empData = loadEmployees();

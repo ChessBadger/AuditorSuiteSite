@@ -22,7 +22,7 @@ const adminBadge = document.getElementById("admin-badge");
 
 const CACHE_NS = "report_cache_v1";
 const CACHE_KEYS = {
-  LIST: `${CACHE_NS}:GET:/api/report-exports`,
+  LIST: `${CACHE_NS}:GET:/api/report-exports-bundle`,
   FILE: (file) =>
     `${CACHE_NS}:GET:/api/report-exports/${encodeURIComponent(file)}`,
   CHAT: `${CACHE_NS}:GET:/api/chatlog`,
@@ -182,19 +182,32 @@ function ensureLastReviewEl() {
   return el;
 }
 
+function getUnreviewedBacklogMeta(nowMs = Date.now()) {
+  let count = 0;
+  let oldestFirstSeenMs = 0;
+
+  for (const ts of Object.values(unreviewedFirstSeenByFile || {})) {
+    const n = Number(ts);
+    if (!Number.isFinite(n) || n <= 0) continue;
+    count += 1;
+    if (oldestFirstSeenMs === 0 || n < oldestFirstSeenMs) oldestFirstSeenMs = n;
+  }
+
+  const ageMs =
+    count > 0 && oldestFirstSeenMs > 0 ? Math.max(0, nowMs - oldestFirstSeenMs) : 0;
+
+  return { count, oldestFirstSeenMs, ageMs };
+}
+
 function renderLastReviewAge() {
   const el = ensureLastReviewEl();
   if (!el) return;
 
-  if (!latestReviewMs) {
-    el.textContent = "Last review: none yet";
-    return;
-  }
-
-  const delta = Math.max(0, Date.now() - latestReviewMs);
-  const mins = Math.floor(delta / 60000);
-  const warnAmber = mins >= 25;
-  const warnRed = mins >= 45;
+  const nowMs = Date.now();
+  const backlog = getUnreviewedBacklogMeta(nowMs);
+  const backlogMins = Math.floor(backlog.ageMs / 60000);
+  const warnAmber = backlog.count > 0 && backlogMins >= 25;
+  const warnRed = backlog.count > 0 && backlogMins >= 45;
   const warnIcon = warnRed
     ? '<span class="review-warn-badge review-warn-badge-red">!!</span>'
     : warnAmber
@@ -204,18 +217,35 @@ function renderLastReviewAge() {
   el.classList.toggle("review-warn-amber", warnAmber && !warnRed);
   el.classList.toggle("review-warn-red", warnRed);
 
+  if (backlog.count > 0) {
+    if (backlogMins < 1) {
+      el.innerHTML = `${warnIcon}Oldest unreviewed waiting < 1 minute (${backlog.count})`;
+      return;
+    }
+    el.innerHTML = `${warnIcon}Oldest unreviewed waiting ${backlogMins} minute${backlogMins === 1 ? "" : "s"} (${backlog.count})`;
+    return;
+  }
+
+  if (!latestReviewMs) {
+    el.textContent = "Last review: none yet";
+    return;
+  }
+
+  const delta = Math.max(0, nowMs - latestReviewMs);
+  const mins = Math.floor(delta / 60000);
+
   if (mins < 1) {
-    el.innerHTML = `${warnIcon}Last review just now`;
+    el.textContent = "Last review just now";
     return;
   }
 
   if (mins < 60) {
-    el.innerHTML = `${warnIcon}Last review ${mins} minute${mins === 1 ? "" : "s"} ago`;
+    el.textContent = `Last review ${mins} minute${mins === 1 ? "" : "s"} ago`;
     return;
   }
 
   const hours = Math.floor(mins / 60);
-  el.innerHTML = `${warnIcon}Last review ${hours} hour${hours === 1 ? "" : "s"} ago`;
+  el.textContent = `Last review ${hours} hour${hours === 1 ? "" : "s"} ago`;
 }
 
 // --------------------
@@ -3076,7 +3106,7 @@ async function loadAreaList() {
   let items;
   try {
     const out = await fetchJsonWithCache(
-      "/api/report-exports",
+      "/api/report-exports-bundle",
       CACHE_KEYS.LIST,
     );
     items = out.data;
@@ -3090,54 +3120,31 @@ async function loadAreaList() {
     return;
   }
 
-  // Enrich by fetching each JSON once (grouping, recounts, reviewed flag)
-  const enriched = await Promise.all(
-    items.map(async (it) => {
-      try {
-        const url = `/api/report-exports/${encodeURIComponent(it.file)}`;
-        const out = await fetchJsonWithCache(url, CACHE_KEYS.FILE(it.file));
-        const data = out.data;
-        const eg = getExportGrouping(data);
-        const areaTotalCurrent = Array.isArray(data.locations)
-          ? data.locations.reduce(
-              (sum, l) => sum + (Number(l?.ext_price_total_current) || 0),
-              0,
-            )
-          : 0;
+  const enriched = items.map((it) => {
+    const data = it?.data && typeof it.data === "object" ? it.data : {};
+    const eg = getExportGrouping(data);
+    const areaTotalCurrent = Array.isArray(data.locations)
+      ? data.locations.reduce(
+          (sum, l) => sum + (Number(l?.ext_price_total_current) || 0),
+          0,
+        )
+      : 0;
 
-        return {
-          area_num: normalizeAreaNum(it.area_num ?? data.area_num ?? ""),
-          area_desc: it.area_desc ?? data.area_desc ?? "",
-          location_count:
-            it.location_count ??
-            (Array.isArray(data.locations) ? data.locations.length : 0),
-          file: it.file,
-          group_id: eg.group_id,
-
-          // ✅ reviewed comes from JSON
-          reviewed: data.reviewed === true,
-          reviewed_at: data.reviewed_at || "",
-          area_total_current: areaTotalCurrent,
-
-          recounts: extractRecountLocations(data, it.file),
-          questions: extractQuestionLocations(data, it.file),
-        };
-      } catch {
-        return {
-          area_num: normalizeAreaNum(it.area_num ?? ""),
-          area_desc: it.area_desc ?? "",
-          location_count: it.location_count ?? 0,
-          file: it.file,
-          group_id: null,
-          reviewed: false,
-          reviewed_at: "",
-          area_total_current: 0,
-          recounts: [],
-          questions: [],
-        };
-      }
-    }),
-  );
+    return {
+      area_num: normalizeAreaNum(it?.area_num ?? data.area_num ?? ""),
+      area_desc: it?.area_desc ?? data.area_desc ?? "",
+      location_count:
+        it?.location_count ??
+        (Array.isArray(data.locations) ? data.locations.length : 0),
+      file: String(it?.file || ""),
+      group_id: eg.group_id,
+      reviewed: data.reviewed === true,
+      reviewed_at: data.reviewed_at || "",
+      area_total_current: areaTotalCurrent,
+      recounts: extractRecountLocations(data, String(it?.file || "")),
+      questions: extractQuestionLocations(data, String(it?.file || "")),
+    };
+  });
 
   syncUnreviewedFirstSeen(enriched);
   latestReviewMs = enriched.reduce(
