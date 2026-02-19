@@ -861,6 +861,19 @@ function installVisualViewportFixForChat() {
 
 async function fetchJsonWithCache(url, cacheKey, opts = {}) {
   const preferCache = opts?.preferCache === true;
+  const timeoutMs = Number(opts?.timeoutMs || 0);
+
+  const fetchGet = (requestUrl) => {
+    if (!(timeoutMs > 0) || typeof AbortController !== "function") {
+      return fetch(requestUrl, { method: "GET" });
+    }
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    return fetch(requestUrl, {
+      method: "GET",
+      signal: controller.signal,
+    }).finally(() => clearTimeout(timeoutId));
+  };
 
   // classify for eviction policy
   const metaType =
@@ -874,7 +887,7 @@ async function fetchJsonWithCache(url, cacheKey, opts = {}) {
     const cached = await cacheGetLarge(cacheKey);
     if (cached && cached.data !== undefined) {
       // Keep cache fresh in background without blocking UI.
-      fetch(url, { method: "GET" })
+      fetchGet(url)
         .then(async (res) => {
           markConnected();
           if (!res.ok) return;
@@ -903,7 +916,7 @@ async function fetchJsonWithCache(url, cacheKey, opts = {}) {
   }
 
   try {
-    const res = await fetch(url, { method: "GET" });
+    const res = await fetchGet(url);
 
     // Server responded: we are connected (even if error status).
     markConnected();
@@ -2554,6 +2567,13 @@ function ensureHelpModal() {
         </span>
         <span>You can still review loaded areas and submit actions/chat; changes may queue locally.</span>
       </div>
+      <div class="help-legend-row">
+        <span class="server-connection is-unknown connection-legend-chip" aria-hidden="true">
+          <span class="server-connection-dot"></span>
+          <span class="server-connection-text">Checking...</span>
+        </span>
+        <span>Connection is being verified. You may continue reviewing areas already loaded.</span>
+      </div>
   `;
 
   const modalHtml = `
@@ -2642,6 +2662,13 @@ function ensureConnectionInfoModal() {
           <span class="server-connection-text">Disconnected</span>
         </span>
         <span>You can still review loaded areas and submit actions/chat; changes may queue locally.</span>
+      </div>
+      <div class="help-legend-row">
+        <span class="server-connection is-unknown connection-legend-chip" aria-hidden="true">
+          <span class="server-connection-dot"></span>
+          <span class="server-connection-text">Checking...</span>
+        </span>
+        <span>Connection is being verified. You may continue reviewing areas already loaded.</span>
       </div>
   `;
 
@@ -3474,10 +3501,15 @@ async function loadAreaList(options = {}) {
 
   let items;
   try {
+    const preferCacheNow =
+      options?.preferCache === true || serverConnectionState !== "online";
     const out = await fetchJsonWithCache(
       "/api/report-exports-bundle",
       CACHE_KEYS.LIST,
-      { preferCache: options?.preferCache === true },
+      {
+        preferCache: preferCacheNow,
+        timeoutMs: 3500,
+      },
     );
     items = out.data;
     if (!Array.isArray(items)) items = [];
