@@ -124,6 +124,7 @@ const CUST_MASTER_FILE = path.join(JSON_DIR, "cust_master.json");
 if (!fs.existsSync(REPORT_DIR)) fs.mkdirSync(REPORT_DIR, { recursive: true });
 
 const LOCATION_ACTIONS_FILE = path.join(REPORT_DIR, "location_actions.json");
+const REVIEW_STATUS_FILE = path.join(REPORT_DIR, "report_review_status.json");
 // Shape:
 // {
 //   "<file>": [
@@ -140,6 +141,11 @@ const LOCATION_ACTIONS_FILE = path.join(REPORT_DIR, "location_actions.json");
 // }
 let locationActionsStore = {};
 let locationActionsStoreMtimeMs = -1;
+let reviewStatusStore = {};
+let reviewStatusStoreMtimeMs = -1;
+
+let reportExportsBundleCache = null;
+const REPORT_EXPORTS_BUNDLE_TTL_MS = 1500;
 
 function normalizeJsonText(raw) {
   return String(raw || "")
@@ -187,6 +193,7 @@ function saveLocationActionsToDisk() {
   const tmp = LOCATION_ACTIONS_FILE + ".tmp";
   fs.writeFileSync(tmp, JSON.stringify(locationActionsStore, null, 2), "utf8");
   fs.renameSync(tmp, LOCATION_ACTIONS_FILE);
+  invalidateReportExportsBundleCache();
   try {
     locationActionsStoreMtimeMs = fs.statSync(LOCATION_ACTIONS_FILE).mtimeMs;
   } catch {
@@ -207,6 +214,7 @@ function syncLocationActionsStoreFromDiskIfChanged() {
   if (diskMtimeMs < 0) {
     if (Object.keys(locationActionsStore).length > 0) {
       locationActionsStore = {};
+      invalidateReportExportsBundleCache();
     }
     locationActionsStoreMtimeMs = -1;
     return;
@@ -214,12 +222,105 @@ function syncLocationActionsStoreFromDiskIfChanged() {
 
   if (locationActionsStoreMtimeMs === diskMtimeMs) return;
   loadLocationActionsFromDisk();
+  invalidateReportExportsBundleCache();
 }
 
 function getStoredActionsForFile(file) {
   syncLocationActionsStoreFromDiskIfChanged();
   const arr = locationActionsStore[file];
   return Array.isArray(arr) ? arr : [];
+}
+
+function loadReviewStatusFromDisk() {
+  try {
+    if (!fs.existsSync(REVIEW_STATUS_FILE)) {
+      reviewStatusStore = {};
+      reviewStatusStoreMtimeMs = -1;
+      return;
+    }
+    const raw = normalizeJsonText(fs.readFileSync(REVIEW_STATUS_FILE, "utf8"));
+    if (!raw) {
+      reviewStatusStore = {};
+      reviewStatusStoreMtimeMs = fs.statSync(REVIEW_STATUS_FILE).mtimeMs;
+      return;
+    }
+
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      reviewStatusStore = parsed;
+    } else {
+      reviewStatusStore = {};
+    }
+    reviewStatusStoreMtimeMs = fs.statSync(REVIEW_STATUS_FILE).mtimeMs;
+  } catch (e) {
+    console.warn("Failed to load report_review_status.json:", e.message);
+    reviewStatusStore = {};
+    reviewStatusStoreMtimeMs = -1;
+  }
+}
+
+function saveReviewStatusToDisk() {
+  const tmp = REVIEW_STATUS_FILE + ".tmp";
+  fs.writeFileSync(tmp, JSON.stringify(reviewStatusStore, null, 2), "utf8");
+  fs.renameSync(tmp, REVIEW_STATUS_FILE);
+  invalidateReportExportsBundleCache();
+  try {
+    reviewStatusStoreMtimeMs = fs.statSync(REVIEW_STATUS_FILE).mtimeMs;
+  } catch {
+    reviewStatusStoreMtimeMs = Date.now();
+  }
+}
+
+function syncReviewStatusStoreFromDiskIfChanged() {
+  let diskMtimeMs = -1;
+  try {
+    if (fs.existsSync(REVIEW_STATUS_FILE)) {
+      diskMtimeMs = fs.statSync(REVIEW_STATUS_FILE).mtimeMs;
+    }
+  } catch {
+    diskMtimeMs = -1;
+  }
+
+  if (diskMtimeMs < 0) {
+    if (Object.keys(reviewStatusStore).length > 0) {
+      reviewStatusStore = {};
+      invalidateReportExportsBundleCache();
+    }
+    reviewStatusStoreMtimeMs = -1;
+    return;
+  }
+
+  if (reviewStatusStoreMtimeMs === diskMtimeMs) return;
+  loadReviewStatusFromDisk();
+  invalidateReportExportsBundleCache();
+}
+
+function getReviewStatusForFile(file) {
+  syncReviewStatusStoreFromDiskIfChanged();
+  const item = reviewStatusStore[file];
+  return item && typeof item === "object" ? item : null;
+}
+
+function applyReviewedStateForFile(file, reviewed, reviewed_at) {
+  const data = reportExportCache.get(file);
+  if (!data) return false;
+
+  data.reviewed = reviewed;
+  if (reviewed) {
+    data.reviewed_at = reviewed_at;
+  }
+
+  reviewStatusStore[file] = {
+    reviewed,
+    reviewed_at: reviewed ? reviewed_at : data.reviewed_at || "",
+  };
+
+  reportExportCache.set(file, data);
+  return true;
+}
+
+function invalidateReportExportsBundleCache() {
+  reportExportsBundleCache = null;
 }
 
 function mergeLocationActions(baseArr, storedArr, opts = {}) {
@@ -394,6 +495,7 @@ function preloadReportExports() {
     try {
       const data = readJsonFile(path.join(REPORT_DIR, f));
       reportExportCache.set(f, data);
+      invalidateReportExportsBundleCache();
     } catch (err) {
       console.warn(`Skipping invalid report export JSON ${f}: ${err.message}`);
     }
@@ -413,6 +515,7 @@ if (fs.existsSync(REPORT_DIR)) {
     if (fs.existsSync(filePath)) {
       try {
         reportExportCache.set(filename, readJsonFile(filePath));
+        invalidateReportExportsBundleCache();
         console.log(`Reloaded report export ${filename} into cache`);
       } catch (err) {
         console.warn(
@@ -421,6 +524,7 @@ if (fs.existsSync(REPORT_DIR)) {
       }
     } else {
       reportExportCache.delete(filename);
+      invalidateReportExportsBundleCache();
       console.log(`Removed report export ${filename} from cache`);
     }
   });
@@ -516,6 +620,7 @@ preloadReportExports();
 preloadCustMaster();
 loadChatLogFromDisk();
 loadLocationActionsFromDisk();
+loadReviewStatusFromDisk();
 
 // allow up to 10â€¯MB of JSON
 app.use(express.json({ limit: "10mb" }));
@@ -650,40 +755,103 @@ app.get("/api/records", (req, res) => {
 
 // List available area exports (EXCLUDES chatlog.json)
 app.get("/api/report-exports", (req, res) => {
+  syncReviewStatusStoreFromDiskIfChanged();
+  const reviewByFile = reviewStatusStore;
   const list = Array.from(reportExportCache.entries())
     .filter(([file, data]) => {
       if (!data || !data.area_num) return false;
       if (String(file).toLowerCase() === "chatlog.json") return false;
       return true;
     })
-    .map(([file, data]) => ({
-      file,
-      area_num: data.area_num,
-      area_desc: data.area_desc || "",
-      location_count: Array.isArray(data.locations) ? data.locations.length : 0,
-    }))
+    .map(([file, data]) => {
+      const status =
+        reviewByFile[file] && typeof reviewByFile[file] === "object"
+          ? reviewByFile[file]
+          : null;
+      return {
+        file,
+        area_num: data.area_num,
+        area_desc: data.area_desc || "",
+        location_count: Array.isArray(data.locations) ? data.locations.length : 0,
+        reviewed: status ? status.reviewed === true : data.reviewed === true,
+        reviewed_at:
+          status && typeof status.reviewed_at === "string"
+            ? status.reviewed_at
+            : data.reviewed_at || "",
+      };
+    })
     .sort((a, b) => String(a.area_num).localeCompare(String(b.area_num)));
 
   res.json(list);
 });
 
-function buildMergedReportExportForResponse(file, base) {
+function buildMergedReportExportForResponse(file, base, opts = {}) {
   if (!base) return null;
-  const out = JSON.parse(JSON.stringify(base));
-  const stored = getStoredActionsForFile(file);
-  const baseActions = []
-    .concat(
-      Array.isArray(out.location_actions) ? out.location_actions : [],
-      Array.isArray(out.locationActions) ? out.locationActions : [],
-      Array.isArray(out.actions) ? out.actions : [],
+
+  const storedByFile =
+    opts.storedActionsByFile && typeof opts.storedActionsByFile === "object"
+      ? opts.storedActionsByFile
+      : null;
+  const reviewByFile =
+    opts.reviewStatusByFile && typeof opts.reviewStatusByFile === "object"
+      ? opts.reviewStatusByFile
+      : null;
+
+  const stored = Array.isArray(storedByFile?.[file])
+    ? storedByFile[file]
+    : getStoredActionsForFile(file);
+  const reviewStatus =
+    (reviewByFile?.[file] && typeof reviewByFile[file] === "object"
+      ? reviewByFile[file]
+      : null) || getReviewStatusForFile(file);
+
+  const locationActions = Array.isArray(base.location_actions)
+    ? base.location_actions
+    : [];
+  const legacyLocationActions = Array.isArray(base.locationActions)
+    ? base.locationActions
+    : [];
+  const legacyActions = Array.isArray(base.actions) ? base.actions : [];
+  const needsActionMerge =
+    stored.length > 0 ||
+    legacyLocationActions.length > 0 ||
+    legacyActions.length > 0;
+  const needsReviewOverlay = reviewStatus !== null;
+
+  if (!needsActionMerge && !needsReviewOverlay) {
+    return base;
+  }
+
+  const out = { ...base };
+  if (needsActionMerge) {
+    out.location_actions = mergeLocationActions(
+      locationActions.concat(legacyLocationActions, legacyActions),
+      stored,
     );
-  out.location_actions = mergeLocationActions(baseActions, stored);
+  }
+  if (needsReviewOverlay) {
+    out.reviewed = reviewStatus.reviewed === true;
+    if (typeof reviewStatus.reviewed_at === "string") {
+      out.reviewed_at = reviewStatus.reviewed_at;
+    }
+  }
   return out;
 }
 
 // Bundled list for fast report home-screen load/refresh:
 // one request returns list metadata + per-file JSON content.
 app.get("/api/report-exports-bundle", (req, res) => {
+  const now = Date.now();
+  if (
+    reportExportsBundleCache &&
+    now - reportExportsBundleCache.ts < REPORT_EXPORTS_BUNDLE_TTL_MS
+  ) {
+    return res.json(reportExportsBundleCache.items);
+  }
+
+  syncLocationActionsStoreFromDiskIfChanged();
+  syncReviewStatusStoreFromDiskIfChanged();
+
   const items = Array.from(reportExportCache.entries())
     .filter(([file, data]) => {
       if (!data || !data.area_num) return false;
@@ -691,7 +859,10 @@ app.get("/api/report-exports-bundle", (req, res) => {
       return true;
     })
     .map(([file, data]) => {
-      const merged = buildMergedReportExportForResponse(file, data);
+      const merged = buildMergedReportExportForResponse(file, data, {
+        storedActionsByFile: locationActionsStore,
+        reviewStatusByFile: reviewStatusStore,
+      });
       return {
         file,
         area_num: merged?.area_num ?? data.area_num,
@@ -706,6 +877,7 @@ app.get("/api/report-exports-bundle", (req, res) => {
     })
     .sort((a, b) => String(a.area_num).localeCompare(String(b.area_num)));
 
+  reportExportsBundleCache = { ts: now, items };
   res.json(items);
 });
 
@@ -846,6 +1018,7 @@ app.post("/api/report-exports/:file/location-action", (req, res) => {
   }
 
   reportExportCache.set(file, data);
+  invalidateReportExportsBundleCache();
 
   return res.json({ success: true, action: actionObj });
 });
@@ -887,11 +1060,49 @@ app.post("/api/reports/:name", (req, res) => {
 
 // â”€â”€â”€ POST reviewed flag â”€â”€â”€
 // Body: { reviewed: true/false, reviewed_at?: ISO string }
+app.post("/api/report-exports/reviewed-batch", (req, res) => {
+  const files = Array.isArray(req.body?.files) ? req.body.files : [];
+  const reviewed = req.body?.reviewed === true;
+  const reviewed_at =
+    typeof req.body?.reviewed_at === "string"
+      ? req.body.reviewed_at
+      : new Date().toISOString();
+
+  const normalizedFiles = files
+    .map((f) => String(f || "").trim())
+    .filter(Boolean);
+
+  if (normalizedFiles.length === 0) {
+    return res.status(400).json({ error: "Missing files array" });
+  }
+
+  syncReviewStatusStoreFromDiskIfChanged();
+
+  const updated = [];
+  const missing = [];
+  for (const file of normalizedFiles) {
+    if (applyReviewedStateForFile(file, reviewed, reviewed_at)) updated.push(file);
+    else missing.push(file);
+  }
+
+  try {
+    saveReviewStatusToDisk();
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+
+  return res.json({
+    success: true,
+    reviewed,
+    reviewed_at,
+    updated,
+    missing,
+  });
+});
+
 app.post("/api/report-exports/:file/reviewed", (req, res) => {
   const file = req.params.file; // e.g. "20100.json"
-  const data = reportExportCache.get(file);
-
-  if (!data) {
+  if (!reportExportCache.has(file)) {
     return res.status(404).json({ error: "Report export not found" });
   }
 
@@ -901,28 +1112,23 @@ app.post("/api/report-exports/:file/reviewed", (req, res) => {
       ? req.body.reviewed_at
       : new Date().toISOString();
 
-  // Update JSON in memory
-  data.reviewed = reviewed;
-
-  // Only set reviewed_at when marking reviewed=true (optional preference)
-  if (reviewed) data.reviewed_at = reviewed_at;
-
-  // Persist to disk
-  const filePath = path.join(REPORT_DIR, file);
+  syncReviewStatusStoreFromDiskIfChanged();
+  applyReviewedStateForFile(file, reviewed, reviewed_at);
+  const effective = reviewStatusStore[file];
   try {
-    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), "utf8");
+    saveReviewStatusToDisk();
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
-
-  // Update in-memory cache
-  reportExportCache.set(file, data);
 
   return res.json({
     success: true,
     file,
     reviewed,
-    reviewed_at: data.reviewed_at,
+    reviewed_at:
+      effective && typeof effective.reviewed_at === "string"
+        ? effective.reviewed_at
+        : "",
   });
 });
 

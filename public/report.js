@@ -845,7 +845,9 @@ function installVisualViewportFixForChat() {
   );
 }
 
-async function fetchJsonWithCache(url, cacheKey) {
+async function fetchJsonWithCache(url, cacheKey, opts = {}) {
+  const preferCache = opts?.preferCache === true;
+
   // classify for eviction policy
   const metaType =
     cacheKey === CACHE_KEYS.LIST
@@ -853,6 +855,38 @@ async function fetchJsonWithCache(url, cacheKey) {
       : cacheKey === CACHE_KEYS.CHAT
         ? "chat"
         : "file"; // most are per-area files
+
+  if (preferCache) {
+    const cached = await cacheGetLarge(cacheKey);
+    if (cached && cached.data !== undefined) {
+      // Keep cache fresh in background without blocking UI.
+      fetch(url, { method: "GET" })
+        .then(async (res) => {
+          markConnected();
+          if (!res.ok) return;
+
+          const data = await res.json();
+          await cacheSetLarge(
+            cacheKey,
+            {
+              ts: Date.now(),
+              data,
+            },
+            metaType,
+          );
+
+          flushPendingQueue();
+        })
+        .catch((err) => {
+          if (looksLikeNetworkError(err)) {
+            markDisconnected();
+            updateDisconnectUI();
+          }
+        });
+
+      return { data: cached.data, fromCache: true };
+    }
+  }
 
   try {
     const res = await fetch(url, { method: "GET" });
@@ -1075,6 +1109,58 @@ async function patchCachedListReviewedFlag(file, reviewed, reviewed_at) {
       "list",
     );
   }
+}
+
+async function patchCachedReviewedFlagsBatch(files, reviewed, reviewed_at) {
+  const fileSet = new Set(
+    (Array.isArray(files) ? files : [])
+      .map((f) => String(f || "").trim())
+      .filter(Boolean),
+  );
+  if (fileSet.size === 0) return;
+
+  const listCached = await cacheGetLarge(CACHE_KEYS.LIST);
+  if (listCached && Array.isArray(listCached.data)) {
+    const list = listCached.data.slice();
+    let listChanged = false;
+
+    for (const it of list) {
+      if (!it || typeof it !== "object") continue;
+      if (!fileSet.has(String(it.file || ""))) continue;
+
+      if ("reviewed" in it) it.reviewed = !!reviewed;
+      if ("reviewed_at" in it) it.reviewed_at = reviewed_at || it.reviewed_at;
+      if (it.data && typeof it.data === "object") {
+        it.data.reviewed = !!reviewed;
+        if (reviewed_at) it.data.reviewed_at = reviewed_at;
+      }
+      listChanged = true;
+    }
+
+    if (listChanged) {
+      await cacheSetLarge(
+        CACHE_KEYS.LIST,
+        { ...listCached, ts: Date.now(), data: list },
+        "list",
+      );
+    }
+  }
+
+  await Promise.all(
+    Array.from(fileSet).map(async (file) => {
+      const key = CACHE_KEYS.FILE(file);
+      const fileCached = await cacheGetLarge(key);
+      if (!fileCached || !fileCached.data || typeof fileCached.data !== "object")
+        return;
+      fileCached.data.reviewed = !!reviewed;
+      if (reviewed_at) fileCached.data.reviewed_at = reviewed_at;
+      await cacheSetLarge(
+        key,
+        { ...fileCached, ts: Date.now(), data: fileCached.data },
+        "file",
+      );
+    }),
+  );
 }
 
 async function getAreaDataFromCachedBundle(file) {
@@ -1312,7 +1398,7 @@ function returnToToReviewList() {
   const wasListView = currentView.type === "list";
   setSplitMode("list");
   setActiveTab(TABS.TO_REVIEW);
-  if (!wasListView) loadAreaList();
+  if (!wasListView) loadAreaList({ preferCache: true });
 }
 
 // --------------------
@@ -3250,7 +3336,7 @@ const currentView = {
   members: null,
 };
 
-async function loadAreaList() {
+async function loadAreaList(options = {}) {
   currentView.type = "list";
   currentView.file = null;
   currentView.groupId = null;
@@ -3268,6 +3354,7 @@ async function loadAreaList() {
     const out = await fetchJsonWithCache(
       "/api/report-exports-bundle",
       CACHE_KEYS.LIST,
+      { preferCache: options?.preferCache === true },
     );
     items = out.data;
     if (!Array.isArray(items)) items = [];
@@ -3717,14 +3804,11 @@ async function loadAreaGroup(groupId, members) {
   const settled = await Promise.all(
     (members || []).map(async (m) => {
       const url = `/api/report-exports/${encodeURIComponent(m.file)}`;
+      const bundled = await getAreaDataFromCachedBundle(m.file);
+      if (bundled) return { ok: true, meta: m, data: bundled };
+
       try {
         const out = await fetchJsonWithCache(url, CACHE_KEYS.FILE(m.file));
-        // When served from cache, prefer the bundled list snapshot when available
-        // so row status stays consistent with the list view.
-        if (out.fromCache) {
-          const bundled = await getAreaDataFromCachedBundle(m.file);
-          if (bundled) return { ok: true, meta: m, data: bundled };
-        }
         return { ok: true, meta: m, data: out.data };
       } catch (err) {
         const fallback = await getAreaDataFromCachedBundle(m.file);
@@ -4093,27 +4177,22 @@ async function loadAreaGroup(groupId, members) {
         try {
           const reviewed_at = new Date().toISOString();
 
-          await Promise.all(
-            groupMembers.map((meta) => {
-              const url = `/api/report-exports/${encodeURIComponent(
-                meta.file,
-              )}/reviewed`;
-              const body = { reviewed: true, reviewed_at };
+          const files = groupMembers
+            .map((m) => String(m?.file || "").trim())
+            .filter(Boolean);
 
-              return postJsonQueued(url, body, {
-                applyLocal: async () => {
-                  await patchCachedFile(meta.file, (data) => {
-                    data.reviewed = true;
-                    data.reviewed_at = reviewed_at;
-                  });
-                  await patchCachedListReviewedFlag(meta.file, true, reviewed_at);
-                },
-              }).then((r) => {
-                // If server rejected (non-network) it throws above; queued counts as ok.
-                return r;
-              });
-            }),
+          await postJsonQueued(
+            "/api/report-exports/reviewed-batch",
+            { files, reviewed: true, reviewed_at },
+            {
+              applyLocal: async () => {
+                await patchCachedReviewedFlagsBatch(files, true, reviewed_at);
+              },
+            },
           );
+
+          // Keep cache/UI coherent on online success too.
+          await patchCachedReviewedFlagsBatch(files, true, reviewed_at);
 
           markBtn.textContent = "Reviewed ✓";
           for (const meta of groupMembers) markFileReviewedForAging(meta.file);
@@ -4145,26 +4224,27 @@ async function loadArea(file, options = {}) {
 
   let data;
   let fromCache = false;
-  try {
-    const out = await fetchJsonWithCache(
-      `/api/report-exports/${encodeURIComponent(file)}`,
-      CACHE_KEYS.FILE(file),
-    );
-    data = out.data;
-    fromCache = out.fromCache === true;
-    if (fromCache) {
-      // Keep offline detail view aligned with the list's cached snapshot.
-      const bundled = await getAreaDataFromCachedBundle(file);
-      if (bundled) data = bundled;
-    }
-  } catch (e) {
-    const fallback = await getAreaDataFromCachedBundle(file);
-    if (!fallback) {
-      statusEl.textContent = `Failed to load report. ${e.message || e}`;
-      return;
-    }
-    data = fallback;
+  const url = `/api/report-exports/${encodeURIComponent(file)}`;
+  const bundled = await getAreaDataFromCachedBundle(file);
+  if (bundled) {
+    data = bundled;
     fromCache = true;
+    // Warm per-file cache in background; UI should not block on this.
+    fetchJsonWithCache(url, CACHE_KEYS.FILE(file)).catch(() => {});
+  } else {
+    try {
+      const out = await fetchJsonWithCache(url, CACHE_KEYS.FILE(file));
+      data = out.data;
+      fromCache = out.fromCache === true;
+    } catch (e) {
+      const fallback = await getAreaDataFromCachedBundle(file);
+      if (!fallback) {
+        statusEl.textContent = `Failed to load report. ${e.message || e}`;
+        return;
+      }
+      data = fallback;
+      fromCache = true;
+    }
   }
 
   if (fromCache) {
@@ -4472,6 +4552,13 @@ async function loadArea(file, options = {}) {
           );
 
           markBtn.textContent = "Reviewed ✓";
+          // Keep cache/UI coherent on online success too.
+          await patchCachedFile(file, (d) => {
+            d.reviewed = true;
+            d.reviewed_at = reviewed_at;
+          });
+          await patchCachedListReviewedFlag(file, true, reviewed_at);
+
           data.reviewed = true;
           markFileReviewedForAging(file);
           latestReviewMs = toMs(reviewed_at) || Date.now();
