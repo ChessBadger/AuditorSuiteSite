@@ -565,6 +565,7 @@ const DISCONNECT_BANNER_AFTER_MS = 5 * 60 * 1000; // 5 minutes
 const BANNER_POLL_MS = 2500;
 const RECONNECT_PROBE_INTERVAL_MS = 3000;
 const RECONNECT_PROBE_TIMEOUT_MS = 3000;
+const WRITE_REQUEST_TIMEOUT_MS = 2500;
 
 let disconnectedSince = (() => {
   const raw = localStorage.getItem(CACHE_KEYS.DISCONNECTED_SINCE);
@@ -798,15 +799,52 @@ function enqueueRequest(req) {
 function looksLikeNetworkError(err) {
   // fetch() network failures typically throw TypeError in browsers
   if (!err) return false;
+  if (err.name === "AbortError") return true;
   const msg = String(err.message || err).toLowerCase();
   return (
     err.name === "TypeError" ||
+    msg.includes("aborted") ||
+    msg.includes("timeout") ||
     msg.includes("failed to fetch") ||
     msg.includes("networkerror") ||
     msg.includes("network error") ||
     msg.includes("load failed") ||
     msg.includes("fetch")
   );
+}
+
+function fetchWithTimeout(requestUrl, fetchOptions, timeoutMs) {
+  if (!(timeoutMs > 0) || typeof AbortController !== "function") {
+    return fetch(requestUrl, fetchOptions);
+  }
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  return fetch(requestUrl, {
+    ...(fetchOptions || {}),
+    signal: controller.signal,
+  }).finally(() => clearTimeout(timeoutId));
+}
+
+async function queuePostForLater(url, payload, headers, applyLocal) {
+  // Apply optimistic local changes (cache) so user can continue navigating.
+  try {
+    if (typeof applyLocal === "function") {
+      await Promise.resolve(applyLocal());
+    }
+  } catch (e) {
+    console.warn("applyLocal failed", e);
+  }
+
+  enqueueRequest({
+    id: `${Date.now()}_${Math.random().toString(16).slice(2)}`,
+    url,
+    method: "POST",
+    headers,
+    body: payload,
+    queuedAt: new Date().toISOString(),
+  });
+
+  return { ok: true, queued: true };
 }
 
 function installVisualViewportFixForChat() {
@@ -962,12 +1000,23 @@ async function postJsonQueued(url, bodyObj, { applyLocal } = {}) {
   const payload = JSON.stringify(bodyObj ?? {});
   const headers = { "Content-Type": "application/json" };
 
+  // If we're already known-offline, skip waiting on network and queue immediately.
+  if (serverConnectionState === "offline" || !navigator.onLine) {
+    markDisconnected();
+    updateDisconnectUI();
+    return queuePostForLater(url, payload, headers, applyLocal);
+  }
+
   try {
-    const res = await fetch(url, {
-      method: "POST",
-      headers,
-      body: payload,
-    });
+    const res = await fetchWithTimeout(
+      url,
+      {
+        method: "POST",
+        headers,
+        body: payload,
+      },
+      WRITE_REQUEST_TIMEOUT_MS,
+    );
 
     // Server responded: connected
     markConnected();
@@ -985,26 +1034,7 @@ async function postJsonQueued(url, bodyObj, { applyLocal } = {}) {
     if (looksLikeNetworkError(err)) {
       markDisconnected();
       updateDisconnectUI();
-
-      // Apply optimistic local changes (cache) so user can continue navigating.
-      try {
-        if (typeof applyLocal === "function") {
-          await Promise.resolve(applyLocal());
-        }
-      } catch (e) {
-        console.warn("applyLocal failed", e);
-      }
-
-      enqueueRequest({
-        id: `${Date.now()}_${Math.random().toString(16).slice(2)}`,
-        url,
-        method: "POST",
-        headers,
-        body: payload,
-        queuedAt: new Date().toISOString(),
-      });
-
-      return { ok: true, queued: true };
+      return queuePostForLater(url, payload, headers, applyLocal);
     }
 
     throw err;
@@ -1024,11 +1054,15 @@ async function flushPendingQueue() {
     const remaining = [];
     for (const item of q) {
       try {
-        const res = await fetch(item.url, {
-          method: item.method || "POST",
-          headers: item.headers || { "Content-Type": "application/json" },
-          body: item.body,
-        });
+        const res = await fetchWithTimeout(
+          item.url,
+          {
+            method: item.method || "POST",
+            headers: item.headers || { "Content-Type": "application/json" },
+            body: item.body,
+          },
+          WRITE_REQUEST_TIMEOUT_MS,
+        );
 
         // Any response means we can clear disconnected state.
         markConnected();
