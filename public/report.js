@@ -873,7 +873,9 @@ async function postJsonQueued(url, bodyObj, { applyLocal } = {}) {
 
       // Apply optimistic local changes (cache) so user can continue navigating.
       try {
-        if (typeof applyLocal === "function") applyLocal();
+        if (typeof applyLocal === "function") {
+          await Promise.resolve(applyLocal());
+        }
       } catch (e) {
         console.warn("applyLocal failed", e);
       }
@@ -943,26 +945,58 @@ async function flushPendingQueue() {
   }
 }
 
-function patchCachedFile(file, mutator) {
-  const key = CACHE_KEYS.FILE(file);
-  const cached = cacheGet(key);
-  if (!cached || cached.data === undefined) return;
+async function patchCachedFile(file, mutator) {
+  const fileKey = CACHE_KEYS.FILE(file);
+  const fileCached = await cacheGetLarge(fileKey);
+  let fileChanged = false;
 
-  const data = cached.data;
-  if (!data || typeof data !== "object") return;
-
-  try {
-    mutator(data);
-    cacheSet(key, { ...cached, ts: Date.now(), data });
-  } catch (e) {
-    console.warn("patchCachedFile mutator failed", e);
+  if (fileCached && fileCached.data && typeof fileCached.data === "object") {
+    try {
+      mutator(fileCached.data);
+      await cacheSetLarge(
+        fileKey,
+        { ...fileCached, ts: Date.now(), data: fileCached.data },
+        "file",
+      );
+      fileChanged = true;
+    } catch (e) {
+      console.warn("patchCachedFile mutator failed for file cache", e);
+    }
   }
+
+  // Also patch the bundled list cache because it contains per-file JSON payloads.
+  // This keeps offline behavior consistent even if the FILE cache was evicted.
+  const listCached = await cacheGetLarge(CACHE_KEYS.LIST);
+  if (!listCached || !Array.isArray(listCached.data)) return fileChanged;
+
+  const list = listCached.data.slice();
+  let listChanged = false;
+  for (const it of list) {
+    if (!it || typeof it !== "object") continue;
+    if (String(it.file || "") !== String(file || "")) continue;
+    if (!it.data || typeof it.data !== "object") continue;
+    try {
+      mutator(it.data);
+      listChanged = true;
+    } catch (e) {
+      console.warn("patchCachedFile mutator failed for list cache", e);
+    }
+  }
+
+  if (listChanged) {
+    await cacheSetLarge(
+      CACHE_KEYS.LIST,
+      { ...listCached, ts: Date.now(), data: list },
+      "list",
+    );
+  }
+
+  return fileChanged || listChanged;
 }
 
-function patchCachedListReviewedFlag(file, reviewed, reviewed_at) {
-  // The list endpoint cache holds array of items; in this app the list is enriched later,
-  // so patching isn't strictly required, but it helps keep things coherent.
-  const cached = cacheGet(CACHE_KEYS.LIST);
+async function patchCachedListReviewedFlag(file, reviewed, reviewed_at) {
+  // The list endpoint cache holds array of items; keep top-level metadata in sync.
+  const cached = await cacheGetLarge(CACHE_KEYS.LIST);
   if (!cached || !Array.isArray(cached.data)) return;
 
   const list = cached.data.slice();
@@ -971,14 +1005,34 @@ function patchCachedListReviewedFlag(file, reviewed, reviewed_at) {
   for (const it of list) {
     if (!it || typeof it !== "object") continue;
     if (String(it.file || "") !== String(file || "")) continue;
-    // list items don't necessarily include reviewed; leave if not present.
     if ("reviewed" in it) it.reviewed = !!reviewed;
     if ("reviewed_at" in it) it.reviewed_at = reviewed_at || it.reviewed_at;
+    if (it.data && typeof it.data === "object") {
+      it.data.reviewed = !!reviewed;
+      if (reviewed_at) it.data.reviewed_at = reviewed_at;
+    }
     changed = true;
   }
 
-  if (changed)
-    cacheSet(CACHE_KEYS.LIST, { ...cached, ts: Date.now(), data: list });
+  if (changed) {
+    await cacheSetLarge(
+      CACHE_KEYS.LIST,
+      { ...cached, ts: Date.now(), data: list },
+      "list",
+    );
+  }
+}
+
+async function getAreaDataFromCachedBundle(file) {
+  const cached = await cacheGetLarge(CACHE_KEYS.LIST);
+  if (!cached || !Array.isArray(cached.data)) return null;
+
+  const hit = cached.data.find(
+    (it) => String(it?.file || "") === String(file || ""),
+  );
+  const data = hit?.data;
+  if (!data || typeof data !== "object") return null;
+  return JSON.parse(JSON.stringify(data));
 }
 
 // --------------------
@@ -2094,9 +2148,9 @@ async function submitLocationAction({ action, text }) {
 
   try {
     const result = await postJsonQueued(url, payload, {
-      applyLocal: () => {
+      applyLocal: async () => {
         // Update cached file so user can continue navigating with accurate local state
-        patchCachedFile(ctx.file, (data) => {
+        await patchCachedFile(ctx.file, (data) => {
           // store in a top-level actions array compatible with existing extraction
           const keyNames = ["location_actions", "locationActions", "actions"];
           let arr = null;
@@ -3056,8 +3110,8 @@ async function loadAndRenderChat({ scrollToBottom } = {}) {
   }
 }
 
-function patchCachedChat(mutator) {
-  const cached = cacheGet(CACHE_KEYS.CHAT);
+async function patchCachedChat(mutator) {
+  const cached = await cacheGetLarge(CACHE_KEYS.CHAT);
   if (!cached || cached.data === undefined) return;
 
   const data = cached.data;
@@ -3065,7 +3119,11 @@ function patchCachedChat(mutator) {
 
   try {
     mutator(data);
-    cacheSet(CACHE_KEYS.CHAT, { ...cached, ts: Date.now(), data });
+    await cacheSetLarge(
+      CACHE_KEYS.CHAT,
+      { ...cached, ts: Date.now(), data },
+      "chat",
+    );
   } catch (e) {
     console.warn("patchCachedChat failed", e);
   }
@@ -3092,9 +3150,9 @@ async function sendChatMessage() {
 
   try {
     const result = await postJsonQueued("/api/chatlog", payload, {
-      applyLocal: () => {
+      applyLocal: async () => {
         // Optimistic update so chat works offline
-        patchCachedChat((data) => {
+        await patchCachedChat((data) => {
           if (Array.isArray(data)) {
             data.push({ id: `${Date.now()}_local`, ...payload });
             return;
@@ -3110,7 +3168,7 @@ async function sendChatMessage() {
     if (result.queued) {
       statusEl.textContent = "Message saved offline (queued).";
       // render from cache after optimistic append
-      const cached = cacheGet(CACHE_KEYS.CHAT);
+      const cached = await cacheGetLarge(CACHE_KEYS.CHAT);
       renderChat(cached?.data, { scrollToBottom: true });
     } else {
       statusEl.textContent = "Message sent.";
@@ -3602,14 +3660,34 @@ async function loadAreaGroup(groupId, members) {
 
   statusEl.textContent = `Loading group…`;
 
-  const results = await Promise.all(
+  const settled = await Promise.all(
     (members || []).map(async (m) => {
       const url = `/api/report-exports/${encodeURIComponent(m.file)}`;
-      const out = await fetchJsonWithCache(url, CACHE_KEYS.FILE(m.file));
-      const data = out.data;
-      return { meta: m, data };
+      try {
+        const out = await fetchJsonWithCache(url, CACHE_KEYS.FILE(m.file));
+        // When served from cache, prefer the bundled list snapshot when available
+        // so row status stays consistent with the list view.
+        if (out.fromCache) {
+          const bundled = await getAreaDataFromCachedBundle(m.file);
+          if (bundled) return { ok: true, meta: m, data: bundled };
+        }
+        return { ok: true, meta: m, data: out.data };
+      } catch (err) {
+        const fallback = await getAreaDataFromCachedBundle(m.file);
+        if (fallback) return { ok: true, meta: m, data: fallback };
+        return { ok: false, meta: m, err };
+      }
     }),
   );
+
+  const results = settled.filter((r) => r?.ok).map((r) => ({
+    meta: r.meta,
+    data: r.data,
+  }));
+  if (results.length === 0) {
+    statusEl.textContent = "Failed to load group. No cached data available.";
+    return;
+  }
 
   // report view: fullscreen
   setSplitMode("fullscreen");
@@ -3933,7 +4011,11 @@ async function loadAreaGroup(groupId, members) {
   wireBreakdownDisclosureButtons(content, reportTypeKey);
   wireToggleAllBreakdownsButton(content, reportTypeKey);
   applyBreakdownPreference(content, reportTypeKey);
-  statusEl.textContent = `Loaded group ${groupId}`;
+  if (results.length < (members || []).length) {
+    statusEl.textContent = `Loaded group ${groupId} (partial cached view).`;
+  } else {
+    statusEl.textContent = `Loaded group ${groupId}`;
+  }
 
   document.getElementById("back-to-areas")?.addEventListener("click", () => {
     setSplitMode("list");
@@ -3943,7 +4025,8 @@ async function loadAreaGroup(groupId, members) {
   // Mark entire group reviewed (server-side)
   const markBtn = document.getElementById("mark-reviewed");
   if (markBtn) {
-    const allReviewed = results.every((r) => r.data?.reviewed === true);
+    const groupMembers = Array.isArray(members) ? members : [];
+    const allReviewed = groupMembers.every((m) => m?.reviewed === true);
 
     if (allReviewed) {
       markBtn.textContent = "Reviewed ✓";
@@ -3957,19 +4040,19 @@ async function loadAreaGroup(groupId, members) {
           const reviewed_at = new Date().toISOString();
 
           await Promise.all(
-            results.map(({ meta }) => {
+            groupMembers.map((meta) => {
               const url = `/api/report-exports/${encodeURIComponent(
                 meta.file,
               )}/reviewed`;
               const body = { reviewed: true, reviewed_at };
 
               return postJsonQueued(url, body, {
-                applyLocal: () => {
-                  patchCachedFile(meta.file, (data) => {
+                applyLocal: async () => {
+                  await patchCachedFile(meta.file, (data) => {
                     data.reviewed = true;
                     data.reviewed_at = reviewed_at;
                   });
-                  patchCachedListReviewedFlag(meta.file, true, reviewed_at);
+                  await patchCachedListReviewedFlag(meta.file, true, reviewed_at);
                 },
               }).then((r) => {
                 // If server rejected (non-network) it throws above; queued counts as ok.
@@ -3979,7 +4062,7 @@ async function loadAreaGroup(groupId, members) {
           );
 
           markBtn.textContent = "Reviewed ✓";
-          for (const { meta } of results) markFileReviewedForAging(meta.file);
+          for (const meta of groupMembers) markFileReviewedForAging(meta.file);
           latestReviewMs = toMs(reviewed_at) || Date.now();
           renderLastReviewAge();
           statusEl.textContent = "Marked group as reviewed.";
@@ -4007,16 +4090,31 @@ async function loadArea(file, options = {}) {
   statusEl.textContent = `Loading…`;
 
   let data;
+  let fromCache = false;
   try {
     const out = await fetchJsonWithCache(
       `/api/report-exports/${encodeURIComponent(file)}`,
       CACHE_KEYS.FILE(file),
     );
     data = out.data;
-    if (out.fromCache) statusEl.textContent = `Loading… (cached)`;
+    fromCache = out.fromCache === true;
+    if (fromCache) {
+      // Keep offline detail view aligned with the list's cached snapshot.
+      const bundled = await getAreaDataFromCachedBundle(file);
+      if (bundled) data = bundled;
+    }
   } catch (e) {
-    statusEl.textContent = `Failed to load report. ${e.message || e}`;
-    return;
+    const fallback = await getAreaDataFromCachedBundle(file);
+    if (!fallback) {
+      statusEl.textContent = `Failed to load report. ${e.message || e}`;
+      return;
+    }
+    data = fallback;
+    fromCache = true;
+  }
+
+  if (fromCache) {
+    statusEl.textContent = `Loading… (cached)`;
   }
 
   const locs = Array.isArray(data.locations) ? data.locations : [];
@@ -4309,12 +4407,12 @@ async function loadArea(file, options = {}) {
             `/api/report-exports/${encodeURIComponent(file)}/reviewed`,
             { reviewed: true, reviewed_at },
             {
-              applyLocal: () => {
-                patchCachedFile(file, (d) => {
+              applyLocal: async () => {
+                await patchCachedFile(file, (d) => {
                   d.reviewed = true;
                   d.reviewed_at = reviewed_at;
                 });
-                patchCachedListReviewedFlag(file, true, reviewed_at);
+                await patchCachedListReviewedFlag(file, true, reviewed_at);
               },
             },
           );
