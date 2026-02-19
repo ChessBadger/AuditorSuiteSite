@@ -561,6 +561,8 @@ function markChatSeen() {
 
 const DISCONNECT_BANNER_AFTER_MS = 5 * 60 * 1000; // 5 minutes
 const BANNER_POLL_MS = 2500;
+const RECONNECT_PROBE_INTERVAL_MS = 10000;
+const RECONNECT_PROBE_TIMEOUT_MS = 3000;
 
 let disconnectedSince = (() => {
   const raw = localStorage.getItem(CACHE_KEYS.DISCONNECTED_SINCE);
@@ -700,16 +702,68 @@ function updateDisconnectUI() {
   else showOfflineBanner(false);
 }
 
+let reconnectProbeInFlight = false;
+
+async function probeServerConnection() {
+  if (reconnectProbeInFlight) return false;
+  reconnectProbeInFlight = true;
+
+  let timeoutId = null;
+  const controller =
+    typeof AbortController === "function" ? new AbortController() : null;
+
+  try {
+    if (controller) {
+      timeoutId = setTimeout(
+        () => controller.abort(),
+        RECONNECT_PROBE_TIMEOUT_MS,
+      );
+    }
+
+    const res = await fetch("/ping", {
+      method: "GET",
+      cache: "no-store",
+      signal: controller?.signal,
+    });
+
+    if (res && res.ok) {
+      markConnected();
+      return true;
+    }
+
+    markDisconnected();
+    updateDisconnectUI();
+    return false;
+  } catch {
+    markDisconnected();
+    updateDisconnectUI();
+    return false;
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+    reconnectProbeInFlight = false;
+  }
+}
+
 setInterval(updateDisconnectUI, BANNER_POLL_MS);
 window.addEventListener("online", () => {
-  // "online" doesn't guarantee server availability, but it's a good time to try.
-  flushPendingQueue();
+  setServerConnectionState("unknown");
+  probeServerConnection().then((ok) => {
+    if (ok) flushPendingQueue();
+  });
 });
 window.addEventListener("offline", () => {
   // browser-level offline signal
   markDisconnected();
   updateDisconnectUI();
 });
+
+setInterval(() => {
+  if (serverConnectionState !== "offline") return;
+  if (!navigator.onLine) return;
+  probeServerConnection().then((ok) => {
+    if (ok) flushPendingQueue();
+  });
+}, RECONNECT_PROBE_INTERVAL_MS);
 
 function getPendingQueue() {
   const raw = localStorage.getItem(CACHE_KEYS.PENDING);
@@ -4453,3 +4507,9 @@ setActiveTab(currentTab);
 // One more: on initial load, if we already have pending writes, try to flush.
 flushPendingQueue();
 updateDisconnectUI();
+if (navigator.onLine) {
+  setServerConnectionState("unknown");
+  probeServerConnection().then((ok) => {
+    if (ok) flushPendingQueue();
+  });
+}
