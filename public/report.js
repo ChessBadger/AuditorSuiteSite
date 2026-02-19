@@ -3,6 +3,7 @@
 const areaList = document.getElementById("area-list");
 const content = document.getElementById("content");
 const statusEl = document.getElementById("status");
+const serverConnectionEl = document.getElementById("server-connection");
 const refreshBtn = document.getElementById("btn-refresh");
 const chatBtn = document.getElementById("btn-chat");
 const helpBtn = document.getElementById("btn-help");
@@ -219,10 +220,10 @@ function renderLastReviewAge() {
 
   if (backlog.count > 0) {
     if (backlogMins < 1) {
-      el.innerHTML = `${warnIcon}Oldest unreviewed waiting < 1 minute (${backlog.count})`;
+      el.innerHTML = `${warnIcon}Oldest pending: <1m (${backlog.count})`;
       return;
     }
-    el.innerHTML = `${warnIcon}Oldest unreviewed waiting ${backlogMins} minute${backlogMins === 1 ? "" : "s"} (${backlog.count})`;
+    el.innerHTML = `${warnIcon}Oldest pending: ${backlogMins}m (${backlog.count})`;
     return;
   }
 
@@ -567,6 +568,50 @@ let disconnectedSince = (() => {
   return Number.isFinite(n) && n > 0 ? n : null;
 })();
 
+let serverConnectionState = disconnectedSince ? "offline" : "unknown";
+
+function renderServerConnectionStatus() {
+  if (!serverConnectionEl) return;
+
+  serverConnectionEl.classList.remove("is-online", "is-offline", "is-unknown");
+
+  const textEl = serverConnectionEl.querySelector(".server-connection-text");
+
+  if (serverConnectionState === "online") {
+    serverConnectionEl.classList.add("is-online");
+    serverConnectionEl.setAttribute("aria-label", "Connected to server");
+    if (textEl) textEl.textContent = "Connected";
+    return;
+  }
+
+  if (serverConnectionState === "offline") {
+    serverConnectionEl.classList.add("is-offline");
+    serverConnectionEl.setAttribute("aria-label", "Disconnected from server");
+    if (textEl) textEl.textContent = "Offline";
+    return;
+  }
+
+  serverConnectionEl.classList.add("is-unknown");
+  serverConnectionEl.setAttribute("aria-label", "Checking server connection");
+  if (textEl) textEl.textContent = "Checking...";
+}
+
+function setServerConnectionState(nextState) {
+  if (
+    nextState !== "online" &&
+    nextState !== "offline" &&
+    nextState !== "unknown"
+  ) {
+    return;
+  }
+
+  if (serverConnectionState === nextState) return;
+  serverConnectionState = nextState;
+  renderServerConnectionStatus();
+}
+
+renderServerConnectionStatus();
+
 function safeJsonParse(s) {
   try {
     return JSON.parse(s);
@@ -626,6 +671,8 @@ function showOfflineBanner(show) {
 }
 
 function markDisconnected() {
+  setServerConnectionState("offline");
+
   if (!disconnectedSince) {
     disconnectedSince = Date.now();
     localStorage.setItem(
@@ -637,6 +684,7 @@ function markDisconnected() {
 }
 
 function markConnected() {
+  setServerConnectionState("online");
   disconnectedSince = null;
   localStorage.removeItem(CACHE_KEYS.DISCONNECTED_SINCE);
   showOfflineBanner(false);
@@ -2554,7 +2602,7 @@ function ensureReviewCloseModal() {
     <div class="modal-header">
       <div>
         <div style="font-weight:800; font-size:20px;">Mark Area Reviewed?</div>
-        <div class="muted" style="margin-top:4px;">This area is not marked as reviewed.</div>
+        <div class="muted" style="margin-top:4px;">This area has not been reviewed yet.</div>
       </div>
       <button id="review-close-x" class="btn" type="button">✕</button>
     </div>
