@@ -12,9 +12,15 @@ const REPORT_DIR = path.resolve(__dirname, "..", "Report-Site");
 
 // Existing audit cache (keep name if you want; this is your current "reportCache")
 const reportCache = new Map();
+const auditReportFileVersions = new Map();
+let lastAuditReportSyncMs = 0;
+const AUDIT_REPORT_SYNC_COOLDOWN_MS = 700;
 
 // NEW: report-export cache (area json files)
 const reportExportCache = new Map();
+const reportExportFileVersions = new Map();
+let lastReportExportSyncMs = 0;
+const REPORT_EXPORT_SYNC_COOLDOWN_MS = 700;
 
 let enabledDataIndex = {
   enabledReports: [],
@@ -157,6 +163,10 @@ function normalizeJsonText(raw) {
 function readJsonFile(filePath) {
   const raw = normalizeJsonText(fs.readFileSync(filePath, "utf8"));
   return JSON.parse(raw);
+}
+
+function getFileVersionFromStat(stat) {
+  return `${Number(stat?.mtimeMs || 0)}:${Number(stat?.size || 0)}`;
 }
 
 function loadLocationActionsFromDisk() {
@@ -425,13 +435,17 @@ function reloadAuditReportFile(filename, attempt = 0) {
   const filePath = path.join(JSON_DIR, filename);
   if (!fs.existsSync(filePath)) {
     reportCache.delete(filename);
+    auditReportFileVersions.delete(filename);
     console.log(`Removed ${filename} from cache`);
     scheduleEnabledDataIndexRebuild();
     return;
   }
 
   try {
-    reportCache.set(filename, readJsonFile(filePath));
+    const parsed = readJsonFile(filePath);
+    reportCache.set(filename, parsed);
+    const stat = fs.statSync(filePath);
+    auditReportFileVersions.set(filename, getFileVersionFromStat(stat));
     console.log(`Reloaded ${filename} into cache`);
     scheduleEnabledDataIndexRebuild();
   } catch (err) {
@@ -442,6 +456,52 @@ function reloadAuditReportFile(filename, attempt = 0) {
     }
     console.warn(`Failed to reload ${filename}: ${err.message}`);
   }
+}
+
+function syncAuditReportCacheFromDisk(opts = {}) {
+  const force = opts.force === true;
+  const now = Date.now();
+  if (!force && now - lastAuditReportSyncMs < AUDIT_REPORT_SYNC_COOLDOWN_MS) {
+    return;
+  }
+  lastAuditReportSyncMs = now;
+
+  let files = [];
+  try {
+    files = fs.readdirSync(JSON_DIR).filter((f) => isTrackedAuditReportFile(f));
+  } catch (err) {
+    console.warn(`Failed to read JSON_DIR for audit sync: ${err.message}`);
+    return;
+  }
+
+  const seen = new Set(files);
+
+  for (const file of files) {
+    const filePath = path.join(JSON_DIR, file);
+    let stat;
+    try {
+      stat = fs.statSync(filePath);
+    } catch {
+      continue;
+    }
+
+    const nextVersion = getFileVersionFromStat(stat);
+    const prevVersion = auditReportFileVersions.get(file);
+    if (!reportCache.has(file) || prevVersion !== nextVersion) {
+      reloadAuditReportFile(file);
+    }
+  }
+
+  let removedAny = false;
+  for (const cachedFile of Array.from(reportCache.keys())) {
+    if (seen.has(cachedFile)) continue;
+    reportCache.delete(cachedFile);
+    auditReportFileVersions.delete(cachedFile);
+    removedAny = true;
+    console.log(`Removed ${cachedFile} from cache`);
+  }
+
+  if (removedAny) scheduleEnabledDataIndexRebuild();
 }
 
 function preloadReports() {
@@ -491,42 +551,96 @@ function preloadReportExports() {
     .readdirSync(REPORT_DIR)
     .filter((f) => f.toLowerCase().endsWith(".json"));
 
-  files.forEach((f) => {
-    try {
-      const data = readJsonFile(path.join(REPORT_DIR, f));
-      reportExportCache.set(f, data);
-      invalidateReportExportsBundleCache();
-    } catch (err) {
-      console.warn(`Skipping invalid report export JSON ${f}: ${err.message}`);
-    }
-  });
+  files.forEach((f) => reloadReportExportFile(f));
 
   console.log(
     `Preloaded ${reportExportCache.size} report-export JSON files into memory`,
   );
 }
 
+function reloadReportExportFile(filename, attempt = 0) {
+  if (!filename || !filename.toLowerCase().endsWith(".json")) return;
+
+  const filePath = path.join(REPORT_DIR, filename);
+  if (!fs.existsSync(filePath)) {
+    reportExportCache.delete(filename);
+    reportExportFileVersions.delete(filename);
+    invalidateReportExportsBundleCache();
+    console.log(`Removed report export ${filename} from cache`);
+    return;
+  }
+
+  try {
+    const data = readJsonFile(filePath);
+    reportExportCache.set(filename, data);
+    const stat = fs.statSync(filePath);
+    reportExportFileVersions.set(filename, getFileVersionFromStat(stat));
+    invalidateReportExportsBundleCache();
+    console.log(`Reloaded report export ${filename} into cache`);
+  } catch (err) {
+    if (attempt < 3) {
+      setTimeout(
+        () => reloadReportExportFile(filename, attempt + 1),
+        60 * (attempt + 1),
+      );
+      return;
+    }
+    console.warn(`Failed to reload report export ${filename}: ${err.message}`);
+  }
+}
+
+function syncReportExportCacheFromDisk(opts = {}) {
+  if (!fs.existsSync(REPORT_DIR)) return;
+
+  const force = opts.force === true;
+  const now = Date.now();
+  if (!force && now - lastReportExportSyncMs < REPORT_EXPORT_SYNC_COOLDOWN_MS) {
+    return;
+  }
+  lastReportExportSyncMs = now;
+
+  let files = [];
+  try {
+    files = fs
+      .readdirSync(REPORT_DIR)
+      .filter((f) => String(f).toLowerCase().endsWith(".json"));
+  } catch (err) {
+    console.warn(`Failed to read REPORT_DIR for sync: ${err.message}`);
+    return;
+  }
+
+  const seen = new Set(files);
+
+  for (const file of files) {
+    const filePath = path.join(REPORT_DIR, file);
+    let stat;
+    try {
+      stat = fs.statSync(filePath);
+    } catch {
+      continue;
+    }
+
+    const nextVersion = getFileVersionFromStat(stat);
+    const prevVersion = reportExportFileVersions.get(file);
+    if (!reportExportCache.has(file) || prevVersion !== nextVersion) {
+      reloadReportExportFile(file);
+    }
+  }
+
+  for (const cachedFile of Array.from(reportExportCache.keys())) {
+    if (seen.has(cachedFile)) continue;
+    reportExportCache.delete(cachedFile);
+    reportExportFileVersions.delete(cachedFile);
+    invalidateReportExportsBundleCache();
+    console.log(`Removed report export ${cachedFile} from cache`);
+  }
+}
+
 // Watch for changes in REPORT_DIR and reload individual files
 if (fs.existsSync(REPORT_DIR)) {
   fs.watch(REPORT_DIR, (event, filename) => {
-    if (!filename || !filename.toLowerCase().endsWith(".json")) return;
-
-    const filePath = path.join(REPORT_DIR, filename);
-    if (fs.existsSync(filePath)) {
-      try {
-        reportExportCache.set(filename, readJsonFile(filePath));
-        invalidateReportExportsBundleCache();
-        console.log(`Reloaded report export ${filename} into cache`);
-      } catch (err) {
-        console.warn(
-          `Failed to reload report export ${filename}: ${err.message}`,
-        );
-      }
-    } else {
-      reportExportCache.delete(filename);
-      invalidateReportExportsBundleCache();
-      console.log(`Removed report export ${filename} from cache`);
-    }
+    if (!filename) return;
+    reloadReportExportFile(filename);
   });
 }
 
@@ -655,6 +769,7 @@ function saveEmployees(empData) {
  */
 function loadEnabledReports(callback) {
   try {
+    syncAuditReportCacheFromDisk();
     const results = enabledDataIndex.enabledReports;
     // simulate async
     process.nextTick(() => callback(null, results));
@@ -691,6 +806,7 @@ app.get("/api/cust_master.json", (req, res) => {
 // â€”â€”â€” list all employees across enabled reports â€”â€”â€”
 app.get("/api/employees", (req, res) => {
   try {
+    syncAuditReportCacheFromDisk();
     const names = enabledDataIndex.employeeNames;
     const empData = loadEmployees();
     let changed = false;
@@ -716,6 +832,7 @@ app.get("/api/employees", (req, res) => {
 // server.js
 
 app.get("/api/locations", (req, res) => {
+  syncAuditReportCacheFromDisk();
   res.json(enabledDataIndex.locationGroups);
 });
 
@@ -725,11 +842,13 @@ app.get("/ping", (req, res) => {
 });
 
 app.get("/api/report-exports-test", (req, res) => {
+  syncReportExportCacheFromDisk();
   res.json({ ok: true, count: reportExportCache.size });
 });
 
 // â€”â€”â€” fetch records filtered by employee, location, or SKU (only from enabled) â€”â€”â€”
 app.get("/api/records", (req, res) => {
+  syncAuditReportCacheFromDisk();
   const { employee, location, sku } = req.query;
   if (!employee && !location && !sku) {
     return res
@@ -755,6 +874,7 @@ app.get("/api/records", (req, res) => {
 
 // List available area exports (EXCLUDES chatlog.json)
 app.get("/api/report-exports", (req, res) => {
+  syncReportExportCacheFromDisk();
   syncReviewStatusStoreFromDiskIfChanged();
   const reviewByFile = reviewStatusStore;
   const list = Array.from(reportExportCache.entries())
@@ -841,6 +961,7 @@ function buildMergedReportExportForResponse(file, base, opts = {}) {
 // Bundled list for fast report home-screen load/refresh:
 // one request returns list metadata + per-file JSON content.
 app.get("/api/report-exports-bundle", (req, res) => {
+  syncReportExportCacheFromDisk();
   const now = Date.now();
   if (
     reportExportsBundleCache &&
@@ -924,6 +1045,7 @@ app.post("/api/chatlog", (req, res) => {
 
 // Fetch one area export by filename (e.g. 40051.json)
 app.get("/api/report-exports/:file", (req, res) => {
+  syncReportExportCacheFromDisk();
   const file = req.params.file;
   const base = reportExportCache.get(file);
   if (!base) return res.status(404).json({ error: "Report export not found" });
@@ -933,6 +1055,7 @@ app.get("/api/report-exports/:file", (req, res) => {
 
 // â”€â”€â”€ POST location actions (recount / question) â”€â”€â”€
 app.post("/api/report-exports/:file/location-action", (req, res) => {
+  syncReportExportCacheFromDisk();
   const file = req.params.file; // e.g. "40061.json"
   const data = reportExportCache.get(file);
 
@@ -1061,6 +1184,7 @@ app.post("/api/reports/:name", (req, res) => {
 // â”€â”€â”€ POST reviewed flag â”€â”€â”€
 // Body: { reviewed: true/false, reviewed_at?: ISO string }
 app.post("/api/report-exports/reviewed-batch", (req, res) => {
+  syncReportExportCacheFromDisk();
   const files = Array.isArray(req.body?.files) ? req.body.files : [];
   const reviewed = req.body?.reviewed === true;
   const reviewed_at =
@@ -1101,6 +1225,7 @@ app.post("/api/report-exports/reviewed-batch", (req, res) => {
 });
 
 app.post("/api/report-exports/:file/reviewed", (req, res) => {
+  syncReportExportCacheFromDisk();
   const file = req.params.file; // e.g. "20100.json"
   if (!reportExportCache.has(file)) {
     return res.status(404).json({ error: "Report export not found" });

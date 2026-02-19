@@ -1366,7 +1366,7 @@ const TABS = {
 
 let currentTab = TABS.TO_REVIEW;
 
-function setActiveTab(tab) {
+function setActiveTab(tab, opts = {}) {
   currentTab = tab;
 
   const defs = [
@@ -1384,8 +1384,8 @@ function setActiveTab(tab) {
   });
 
   // Reload list view if we're currently on the list screen.
-  if (currentView.type === "list") {
-    loadAreaList();
+  if (currentView.type === "list" && opts.reloadList !== false) {
+    loadAreaList({ preferCache: opts.preferCache === true });
   }
 
   // Keep notification dots in sync when switching tabs.
@@ -1394,9 +1394,15 @@ function setActiveTab(tab) {
   refreshChatNotification();
 }
 
-function returnToToReviewList() {
+function returnToToReviewList(opts = {}) {
+  const forceRefresh = opts.forceRefresh === true;
   const wasListView = currentView.type === "list";
   setSplitMode("list");
+  if (forceRefresh) {
+    setActiveTab(TABS.TO_REVIEW, { reloadList: false });
+    loadAreaList({ preferCache: false });
+    return;
+  }
   setActiveTab(TABS.TO_REVIEW);
   if (!wasListView) loadAreaList({ preferCache: true });
 }
@@ -4576,7 +4582,9 @@ async function loadArea(file, options = {}) {
   }
 }
 
-refreshBtn?.addEventListener("click", returnToToReviewList);
+refreshBtn?.addEventListener("click", () =>
+  returnToToReviewList({ forceRefresh: true }),
+);
 
 tabToReviewBtn?.addEventListener("click", () => setActiveTab(TABS.TO_REVIEW));
 tabReviewedBtn?.addEventListener("click", () => setActiveTab(TABS.REVIEWED));
