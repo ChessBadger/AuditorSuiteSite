@@ -195,7 +195,9 @@ function getUnreviewedBacklogMeta(nowMs = Date.now()) {
   }
 
   const ageMs =
-    count > 0 && oldestFirstSeenMs > 0 ? Math.max(0, nowMs - oldestFirstSeenMs) : 0;
+    count > 0 && oldestFirstSeenMs > 0
+      ? Math.max(0, nowMs - oldestFirstSeenMs)
+      : 0;
 
   return { count, oldestFirstSeenMs, ageMs };
 }
@@ -561,7 +563,7 @@ function markChatSeen() {
 
 const DISCONNECT_BANNER_AFTER_MS = 5 * 60 * 1000; // 5 minutes
 const BANNER_POLL_MS = 2500;
-const RECONNECT_PROBE_INTERVAL_MS = 10000;
+const RECONNECT_PROBE_INTERVAL_MS = 3000;
 const RECONNECT_PROBE_TIMEOUT_MS = 3000;
 
 let disconnectedSince = (() => {
@@ -589,7 +591,7 @@ function renderServerConnectionStatus() {
   if (serverConnectionState === "offline") {
     serverConnectionEl.classList.add("is-offline");
     serverConnectionEl.setAttribute("aria-label", "Disconnected from server");
-    if (textEl) textEl.textContent = "Offline";
+    if (textEl) textEl.textContent = "Disconnected";
     return;
   }
 
@@ -744,25 +746,37 @@ async function probeServerConnection() {
   }
 }
 
-setInterval(updateDisconnectUI, BANNER_POLL_MS);
-window.addEventListener("online", () => {
-  setServerConnectionState("unknown");
+function triggerReconnectProbe({ setUnknown = false } = {}) {
+  if (!navigator.onLine) return;
+  if (setUnknown) setServerConnectionState("unknown");
   probeServerConnection().then((ok) => {
     if (ok) flushPendingQueue();
   });
+}
+
+setInterval(updateDisconnectUI, BANNER_POLL_MS);
+window.addEventListener("online", () => {
+  triggerReconnectProbe({ setUnknown: true });
 });
 window.addEventListener("offline", () => {
   // browser-level offline signal
   markDisconnected();
   updateDisconnectUI();
 });
+window.addEventListener("focus", () => {
+  if (serverConnectionState === "online") return;
+  triggerReconnectProbe({ setUnknown: true });
+});
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState !== "visible") return;
+  if (serverConnectionState === "online") return;
+  triggerReconnectProbe({ setUnknown: true });
+});
 
 setInterval(() => {
   if (serverConnectionState !== "offline") return;
   if (!navigator.onLine) return;
-  probeServerConnection().then((ok) => {
-    if (ok) flushPendingQueue();
-  });
+  triggerReconnectProbe();
 }, RECONNECT_PROBE_INTERVAL_MS);
 
 function getPendingQueue() {
@@ -1150,7 +1164,11 @@ async function patchCachedReviewedFlagsBatch(files, reviewed, reviewed_at) {
     Array.from(fileSet).map(async (file) => {
       const key = CACHE_KEYS.FILE(file);
       const fileCached = await cacheGetLarge(key);
-      if (!fileCached || !fileCached.data || typeof fileCached.data !== "object")
+      if (
+        !fileCached ||
+        !fileCached.data ||
+        typeof fileCached.data !== "object"
+      )
         return;
       fileCached.data.reviewed = !!reviewed;
       if (reviewed_at) fileCached.data.reviewed_at = reviewed_at;
@@ -2521,6 +2539,23 @@ function wireLocationMessageButtons(root) {
 function ensureHelpModal() {
   if (document.getElementById("help-modal")) return;
 
+  const connectionLegendHtml = `
+      <div class="help-legend-row">
+        <span class="server-connection is-online connection-legend-chip" aria-hidden="true">
+          <span class="server-connection-dot"></span>
+          <span class="server-connection-text">Connected</span>
+        </span>
+        <span>Synced with server. New area exports can appear.</span>
+      </div>
+      <div class="help-legend-row">
+        <span class="server-connection is-offline connection-legend-chip" aria-hidden="true">
+          <span class="server-connection-dot"></span>
+          <span class="server-connection-text">Disconnected</span>
+        </span>
+        <span>You can still review loaded areas and submit actions/chat; changes may queue locally.</span>
+      </div>
+  `;
+
   const modalHtml = `
 <div id="help-modal" class="modal-backdrop" style="display:none;">
   <div class="modal">
@@ -2554,6 +2589,10 @@ function ensureHelpModal() {
       <div>Use <strong>Refresh</strong> to reload the list.</div>
       <div>Use <strong>Chat</strong> for manager/supervisor communication.</div>
       <div>Press <strong>Esc</strong> to close open dialogs.</div>
+
+      <div class="help-section-title">Connection Status</div>
+      ${connectionLegendHtml}
+      <div>If disconnected, move closer to the workstation Wi-Fi to reconnect and receive new areas.</div>
     </div>
 
     <div class="modal-footer">
@@ -2583,6 +2622,84 @@ function ensureHelpModal() {
 function openHelpModal() {
   ensureHelpModal();
   const m = document.getElementById("help-modal");
+  if (m) m.style.display = "flex";
+}
+
+function ensureConnectionInfoModal() {
+  if (document.getElementById("connection-info-modal")) return;
+
+  const connectionLegendHtml = `
+      <div class="help-legend-row">
+        <span class="server-connection is-online connection-legend-chip" aria-hidden="true">
+          <span class="server-connection-dot"></span>
+          <span class="server-connection-text">Connected</span>
+        </span>
+        <span>Synced with server. New area exports can appear.</span>
+      </div>
+      <div class="help-legend-row">
+        <span class="server-connection is-offline connection-legend-chip" aria-hidden="true">
+          <span class="server-connection-dot"></span>
+          <span class="server-connection-text">Disconnected</span>
+        </span>
+        <span>You can still review loaded areas and submit actions/chat; changes may queue locally.</span>
+      </div>
+  `;
+
+  const modalHtml = `
+<div id="connection-info-modal" class="modal-backdrop" style="display:none;">
+  <div class="modal">
+    <div class="modal-header">
+      <div>
+        <div style="font-weight:900; font-size:20px;">Connection Status</div>
+        <div id="conn-info-current" class="muted mono"></div>
+      </div>
+      <button id="connection-info-close" class="btn" type="button">X</button>
+    </div>
+
+    <div class="modal-body help-body">
+      ${connectionLegendHtml}
+      <div>Return closer to the workstation Wi-Fi to reconnect and receive new areas.</div>
+    </div>
+
+    <div class="modal-footer">
+      <div class="modal-actions">
+        <button id="connection-info-ok" class="btn btn-primary" type="button">OK</button>
+      </div>
+    </div>
+  </div>
+</div>
+`;
+  document.body.insertAdjacentHTML("beforeend", modalHtml);
+
+  const close = () => {
+    const m = document.getElementById("connection-info-modal");
+    if (m) m.style.display = "none";
+  };
+
+  document
+    .getElementById("connection-info-close")
+    .addEventListener("click", close);
+  document.getElementById("connection-info-ok").addEventListener("click", close);
+
+  document.addEventListener("keydown", (e) => {
+    const m = document.getElementById("connection-info-modal");
+    if (e.key === "Escape" && m && m.style.display === "flex") close();
+  });
+}
+
+function openConnectionInfoModal() {
+  ensureConnectionInfoModal();
+  const current = document.getElementById("conn-info-current");
+  if (current) {
+    const label =
+      serverConnectionState === "online"
+        ? "Current: Connected"
+        : serverConnectionState === "offline"
+          ? "Current: Disconnected"
+          : "Current: Checking...";
+    current.textContent = label;
+  }
+  const m = document.getElementById("connection-info-modal");
   if (m) m.style.display = "flex";
 }
 
@@ -3824,10 +3941,12 @@ async function loadAreaGroup(groupId, members) {
     }),
   );
 
-  const results = settled.filter((r) => r?.ok).map((r) => ({
-    meta: r.meta,
-    data: r.data,
-  }));
+  const results = settled
+    .filter((r) => r?.ok)
+    .map((r) => ({
+      meta: r.meta,
+      data: r.data,
+    }));
   if (results.length === 0) {
     statusEl.textContent = "Failed to load group. No cached data available.";
     return;
@@ -4582,9 +4701,10 @@ async function loadArea(file, options = {}) {
   }
 }
 
-refreshBtn?.addEventListener("click", () =>
-  returnToToReviewList({ forceRefresh: true }),
-);
+refreshBtn?.addEventListener("click", () => {
+  triggerReconnectProbe({ setUnknown: true });
+  returnToToReviewList({ forceRefresh: true });
+});
 
 tabToReviewBtn?.addEventListener("click", () => setActiveTab(TABS.TO_REVIEW));
 tabReviewedBtn?.addEventListener("click", () => setActiveTab(TABS.REVIEWED));
@@ -4592,6 +4712,22 @@ tabRecountsBtn?.addEventListener("click", () => setActiveTab(TABS.RECOUNTS));
 tabQuestionsBtn?.addEventListener("click", () => setActiveTab(TABS.QUESTIONS));
 chatBtn?.addEventListener("click", () => openChatModal());
 helpBtn?.addEventListener("click", () => openHelpModal());
+if (serverConnectionEl) {
+  serverConnectionEl.classList.add("is-clickable");
+  serverConnectionEl.setAttribute(
+    "title",
+    "Tap for connection help and offline behavior",
+  );
+  serverConnectionEl.setAttribute("tabindex", "0");
+  serverConnectionEl.setAttribute("aria-label", "Server connection help");
+  serverConnectionEl.addEventListener("click", openConnectionInfoModal);
+  serverConnectionEl.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      openConnectionInfoModal();
+    }
+  });
+}
 
 renderLastReviewAge();
 setInterval(renderLastReviewAge, 30000);
@@ -4603,8 +4739,5 @@ setActiveTab(currentTab);
 flushPendingQueue();
 updateDisconnectUI();
 if (navigator.onLine) {
-  setServerConnectionState("unknown");
-  probeServerConnection().then((ok) => {
-    if (ok) flushPendingQueue();
-  });
+  triggerReconnectProbe({ setUnknown: true });
 }

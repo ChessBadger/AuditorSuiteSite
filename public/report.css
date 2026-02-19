@@ -101,6 +101,21 @@ h1 {
   white-space: nowrap;
 }
 
+.server-connection.is-clickable {
+  cursor: pointer;
+}
+
+.server-connection.is-clickable:focus-visible {
+  outline: 2px solid #1d4ed8;
+  outline-offset: 2px;
+}
+
+.connection-legend-chip {
+  margin-left: 0;
+  margin-right: 8px;
+  vertical-align: middle;
+}
+
 .server-connection-dot {
   width: 10px;
   height: 10px;
