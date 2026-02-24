@@ -45,6 +45,7 @@ let latestQuestionsReplyMs = 0;
 let latestRecountMs = 0;
 let latestRecountResultKeys = new Set();
 let latestReviewMs = 0;
+let reviewTimingStarted = false;
 
 const AGING_KEYS = {
   UNREVIEWED_FIRST_SEEN_BY_FILE: `${CACHE_NS}:UNREVIEWED_FIRST_SEEN_BY_FILE`,
@@ -99,6 +100,13 @@ function persistUnreviewedFirstSeenMap() {
   } catch (e) {
     console.warn("persistUnreviewedFirstSeenMap failed", e);
   }
+}
+
+function clearUnreviewedFirstSeen() {
+  const keys = Object.keys(unreviewedFirstSeenByFile || {});
+  if (keys.length === 0) return;
+  unreviewedFirstSeenByFile = {};
+  persistUnreviewedFirstSeenMap();
 }
 
 function syncUnreviewedFirstSeen(enriched, nowMs = Date.now()) {
@@ -205,6 +213,12 @@ function getUnreviewedBacklogMeta(nowMs = Date.now()) {
 function renderLastReviewAge() {
   const el = ensureLastReviewEl();
   if (!el) return;
+
+  if (!reviewTimingStarted) {
+    el.textContent = "Pending timer starts after first review";
+    el.classList.remove("review-warn-amber", "review-warn-red");
+    return;
+  }
 
   const nowMs = Date.now();
   const backlog = getUnreviewedBacklogMeta(nowMs);
@@ -3584,7 +3598,14 @@ async function loadAreaList(options = {}) {
     };
   });
 
-  syncUnreviewedFirstSeen(enriched);
+  const hadReviewTimingStarted = reviewTimingStarted;
+  reviewTimingStarted = enriched.some((e) => e.reviewed === true);
+  if (reviewTimingStarted) {
+    if (!hadReviewTimingStarted) clearUnreviewedFirstSeen();
+    syncUnreviewedFirstSeen(enriched);
+  } else {
+    clearUnreviewedFirstSeen();
+  }
   latestReviewMs = enriched.reduce(
     (max, e) => Math.max(max, toMs(e?.reviewed_at || "")),
     0,
@@ -3906,7 +3927,8 @@ async function loadAreaList(options = {}) {
       );
     const ageMs = Math.max(0, Date.now() - oldestMs);
     const agingClass = getAgingClass(ageMs);
-    if (currentTab === TABS.TO_REVIEW) li.classList.add(agingClass);
+    if (currentTab === TABS.TO_REVIEW && reviewTimingStarted)
+      li.classList.add(agingClass);
 
     li.innerHTML = `
       <div style="display:flex; align-items:baseline; justify-content:space-between; gap:10px;">
@@ -3915,7 +3937,9 @@ async function loadAreaList(options = {}) {
           allReviewed
             ? `<span class="muted">Reviewed &#10003;</span>`
             : currentTab === TABS.TO_REVIEW
-              ? `<span class="age-pill ${agingClass}">&#128339; ${escapeHtml(formatAgeShortFromMs(ageMs))}</span>`
+              ? reviewTimingStarted
+                ? `<span class="age-pill ${agingClass}">&#128339; ${escapeHtml(formatAgeShortFromMs(ageMs))}</span>`
+                : `<span class="age-pill age-fresh">&#128339; Not started</span>`
               : ""
         }
       </div>
@@ -3933,7 +3957,7 @@ async function loadAreaList(options = {}) {
     const firstSeenMs = getUnreviewedFirstSeenMs(item.file);
     const ageMs = Math.max(0, Date.now() - firstSeenMs);
     const agingClass = getAgingClass(ageMs);
-    if (currentTab === TABS.TO_REVIEW && !reviewed)
+    if (currentTab === TABS.TO_REVIEW && !reviewed && reviewTimingStarted)
       li.classList.add(agingClass);
 
     li.innerHTML = `
@@ -3943,7 +3967,9 @@ async function loadAreaList(options = {}) {
           reviewed
             ? `<span class="muted">Reviewed &#10003;</span>`
             : currentTab === TABS.TO_REVIEW
-              ? `<span class="age-pill ${agingClass}">&#128339; ${escapeHtml(formatAgeShortFromMs(ageMs))}</span>`
+              ? reviewTimingStarted
+                ? `<span class="age-pill ${agingClass}">&#128339; ${escapeHtml(formatAgeShortFromMs(ageMs))}</span>`
+                : `<span class="age-pill age-fresh">&#128339; Not started</span>`
               : ""
         }
       </div>
@@ -4388,6 +4414,7 @@ async function loadAreaGroup(groupId, members) {
           await patchCachedReviewedFlagsBatch(files, true, reviewed_at);
 
           markBtn.textContent = "Reviewed ✓";
+          reviewTimingStarted = true;
           for (const meta of groupMembers) markFileReviewedForAging(meta.file);
           latestReviewMs = toMs(reviewed_at) || Date.now();
           renderLastReviewAge();
@@ -4753,6 +4780,7 @@ async function loadArea(file, options = {}) {
           await patchCachedListReviewedFlag(file, true, reviewed_at);
 
           data.reviewed = true;
+          reviewTimingStarted = true;
           markFileReviewedForAging(file);
           latestReviewMs = toMs(reviewed_at) || Date.now();
           renderLastReviewAge();
