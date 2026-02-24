@@ -561,7 +561,7 @@ function markChatSeen() {
   setNotif(chatBtn, false);
 }
 
-const DISCONNECT_BANNER_AFTER_MS = 5 * 60 * 1000; // 5 minutes
+const DISCONNECT_BANNER_AFTER_MS = 25 * 60 * 1000; // 5 minutes
 const BANNER_POLL_MS = 2500;
 const RECONNECT_PROBE_INTERVAL_MS = 3000;
 const RECONNECT_PROBE_TIMEOUT_MS = 3000;
@@ -663,7 +663,7 @@ function ensureOfflineBanner() {
     color: #111;
   `;
   el.textContent =
-    "Disconnected for over 5 minutes. Please return to the station.";
+    "Disconnected for over 25 minutes. Please return to the station.";
 
   document.body.appendChild(el);
 }
@@ -2740,7 +2740,9 @@ function ensureConnectionInfoModal() {
   document
     .getElementById("connection-info-close")
     .addEventListener("click", close);
-  document.getElementById("connection-info-ok").addEventListener("click", close);
+  document
+    .getElementById("connection-info-ok")
+    .addEventListener("click", close);
 
   document.addEventListener("keydown", (e) => {
     const m = document.getElementById("connection-info-modal");
