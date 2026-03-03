@@ -914,6 +914,9 @@ function installVisualViewportFixForChat() {
 async function fetchJsonWithCache(url, cacheKey, opts = {}) {
   const preferCache = opts?.preferCache === true;
   const timeoutMs = Number(opts?.timeoutMs || 0);
+  const skipBackgroundRefresh = opts?.skipBackgroundRefresh === true;
+  const onFreshData =
+    typeof opts?.onFreshData === "function" ? opts.onFreshData : null;
 
   const fetchGet = (requestUrl) => {
     if (!(timeoutMs > 0) || typeof AbortController !== "function") {
@@ -939,29 +942,39 @@ async function fetchJsonWithCache(url, cacheKey, opts = {}) {
     const cached = await cacheGetLarge(cacheKey);
     if (cached && cached.data !== undefined) {
       // Keep cache fresh in background without blocking UI.
-      fetchGet(url)
-        .then(async (res) => {
-          markConnected();
-          if (!res.ok) return;
+      if (!skipBackgroundRefresh) {
+        fetchGet(url)
+          .then(async (res) => {
+            markConnected();
+            if (!res.ok) return;
 
-          const data = await res.json();
-          await cacheSetLarge(
-            cacheKey,
-            {
-              ts: Date.now(),
-              data,
-            },
-            metaType,
-          );
+            const data = await res.json();
+            await cacheSetLarge(
+              cacheKey,
+              {
+                ts: Date.now(),
+                data,
+              },
+              metaType,
+            );
 
-          flushPendingQueue();
-        })
-        .catch((err) => {
-          if (looksLikeNetworkError(err)) {
-            markDisconnected();
-            updateDisconnectUI();
-          }
-        });
+            if (onFreshData) {
+              try {
+                await Promise.resolve(onFreshData(data));
+              } catch (e) {
+                console.warn("onFreshData failed", e);
+              }
+            }
+
+            flushPendingQueue();
+          })
+          .catch((err) => {
+            if (looksLikeNetworkError(err)) {
+              markDisconnected();
+              updateDisconnectUI();
+            }
+          });
+      }
 
       return { data: cached.data, fromCache: true };
     }
@@ -1479,7 +1492,7 @@ function returnToToReviewList(opts = {}) {
   setSplitMode("list");
   if (forceRefresh) {
     setActiveTab(TABS.TO_REVIEW, { reloadList: false });
-    loadAreaList({ preferCache: false });
+    loadAreaList({ preferCache: false, preserveExisting: true });
     return;
   }
   setActiveTab(TABS.TO_REVIEW);
@@ -3536,14 +3549,24 @@ const currentView = {
   members: null,
 };
 
+let areaListLoadSeq = 0;
+
 async function loadAreaList(options = {}) {
+  const loadId = ++areaListLoadSeq;
+  const wasListView = currentView.type === "list";
+  const keepCurrentList =
+    options?.preserveExisting === true &&
+    wasListView &&
+    areaList.childElementCount > 0;
+
   currentView.type = "list";
   currentView.file = null;
   currentView.groupId = null;
   currentView.members = null;
 
   statusEl.textContent = "Loading…";
-  areaList.innerHTML = "";
+  if (keepCurrentList) statusEl.textContent = "Refreshing...";
+  if (!keepCurrentList) areaList.innerHTML = "";
   content.innerHTML = `<p class="muted">Select an area to view locations + totals.</p>`;
 
   // list mode = sidebar takes full width; main hidden by CSS
@@ -3559,8 +3582,22 @@ async function loadAreaList(options = {}) {
       {
         preferCache: preferCacheNow,
         timeoutMs: 3500,
+        skipBackgroundRefresh: options?.skipBackgroundRefresh === true,
+        onFreshData:
+          preferCacheNow && options?.skipBackgroundRefresh !== true
+            ? async () => {
+                if (loadId !== areaListLoadSeq) return;
+                if (currentView.type !== "list") return;
+                loadAreaList({
+                  preferCache: true,
+                  preserveExisting: true,
+                  skipBackgroundRefresh: true,
+                });
+              }
+            : null,
       },
     );
+    if (loadId !== areaListLoadSeq || currentView.type !== "list") return;
     items = out.data;
     if (!Array.isArray(items)) items = [];
     if (out.fromCache) {
@@ -3568,9 +3605,12 @@ async function loadAreaList(options = {}) {
       statusEl.textContent = "Loading… (cached)";
     }
   } catch (e) {
+    if (loadId !== areaListLoadSeq || currentView.type !== "list") return;
     statusEl.textContent = `Failed to load areas. ${e.message || e}`;
     return;
   }
+
+  areaList.innerHTML = "";
 
   const enriched = items.map((it) => {
     const data = it?.data && typeof it.data === "object" ? it.data : {};
