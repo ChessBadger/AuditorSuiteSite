@@ -1376,8 +1376,42 @@ app.post("/api/reports/:name/complete", (req, res) => {
   try {
     // 3) Load and update the JSON
     const obj = readJsonFile(srcPath);
+    const incomingRecords = Array.isArray(req.body?.records)
+      ? req.body.records
+      : Array.isArray(obj.records)
+        ? obj.records
+        : [];
+
+    const invalidManualSkuRows = incomingRecords.filter((rec) => {
+      if (!rec || rec.deleted === true) return false;
+
+      const foundStatus = String(rec.FOUND_STAT ?? "")
+        .trim()
+        .toUpperCase();
+      if (foundStatus !== "F") return false;
+
+      const hasCategory =
+        rec.CAT_NUM !== null &&
+        rec.CAT_NUM !== undefined &&
+        String(rec.CAT_NUM).trim() !== "";
+      const hasPrice =
+        rec.PRICE !== null &&
+        rec.PRICE !== undefined &&
+        String(rec.PRICE).trim() !== "" &&
+        Number.isFinite(Number(rec.PRICE));
+
+      return !(hasCategory && hasPrice);
+    });
+
+    if (invalidManualSkuRows.length > 0) {
+      return res.status(400).json({
+        error:
+          "Category and price are required for SKU errors before marking location complete.",
+      });
+    }
+
     if (Array.isArray(req.body.records)) {
-      obj.records = req.body.records;
+      obj.records = incomingRecords;
     }
     obj.enabled = false;
     obj.completedAt = new Date().toISOString();
@@ -1394,7 +1428,7 @@ app.post("/api/reports/:name/complete", (req, res) => {
 
     // 5) Update employeeâ€‘completion flags
     const empData = loadEmployees();
-    req.body.records.forEach((rec) => {
+    incomingRecords.forEach((rec) => {
       const nm = rec.employee_name;
       if (nm && !empData.hasOwnProperty(nm)) {
         empData[nm] = false;
@@ -1408,7 +1442,7 @@ app.post("/api/reports/:name/complete", (req, res) => {
         return res.status(500).json({ error: err2.message });
       }
 
-      req.body.records.forEach((rec) => {
+      incomingRecords.forEach((rec) => {
         const nm = rec.employee_name;
         const stillHas = reps2.some((r) =>
           r.data.records?.some((r2) => r2.employee_name === nm),

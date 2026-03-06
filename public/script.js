@@ -1024,6 +1024,36 @@ document.addEventListener("DOMContentLoaded", () => {
         visibleCols.some((c) => c.key === "CAT_NUM");
       const priceEditable =
         !skuVisible && visibleCols.some((c) => c.key === "PRICE");
+      function rowNeedsManualSkuFields(rowData) {
+        return (
+          !rowData?.deleted &&
+          String(rowData?.FOUND_STAT ?? "")
+            .trim()
+            .toUpperCase() === "F"
+        );
+      }
+      function ensureColumnVisible(columnKey) {
+        if (visibleCols.some((c) => c.key === columnKey)) return;
+        const columnDef = ALL_COLUMNS.find((c) => c.key === columnKey);
+        if (!columnDef) return;
+
+        const targetOrder = ALL_COLUMNS.findIndex((c) => c.key === columnKey);
+        let insertAt = visibleCols.length;
+        for (let i = 0; i < visibleCols.length; i++) {
+          const currentOrder = ALL_COLUMNS.findIndex(
+            (c) => c.key === visibleCols[i].key,
+          );
+          if (currentOrder > targetOrder) {
+            insertAt = i;
+            break;
+          }
+        }
+        visibleCols.splice(insertAt, 0, columnDef);
+      }
+      if (data.some((row) => rowNeedsManualSkuFields(row))) {
+        ensureColumnVisible("CAT_NUM");
+        ensureColumnVisible("PRICE");
+      }
 
       const fileName = data[0].file;
       let saveTimeout = null;
@@ -1200,9 +1230,19 @@ document.addEventListener("DOMContentLoaded", () => {
               inp.type = "number";
               // inp.required = true;
               inp.value = rowData.SKU || "";
+              if (rowNeedsManualSkuFields(rowData)) {
+                inp.classList.add("sku-error");
+              }
               inp.style.whiteSpace = "nowrap";
               inp.addEventListener("change", () => {
                 rowData.SKU = inp.value.trim();
+                if (!rowData.SKU) {
+                  rowData.FOUND_STAT = "";
+                  inp.classList.remove("sku-error");
+                  saveData();
+                  rebuildTable();
+                  return;
+                }
 
                 fetch(`/api/sku/${encodeURIComponent(rowData.SKU)}`)
                   .then((r) => (r.ok ? r.json() : null))
@@ -1234,6 +1274,10 @@ document.addEventListener("DOMContentLoaded", () => {
                     } else {
                       rowData.FOUND_STAT = "F";
                       inp.classList.add("sku-error");
+                      ensureColumnVisible("CAT_NUM");
+                      ensureColumnVisible("PRICE");
+                      saveData();
+                      rebuildTable();
                     }
                   });
               });
@@ -1254,26 +1298,43 @@ document.addEventListener("DOMContentLoaded", () => {
                 rowData.QUANTITY2 = 1;
               });
               td.appendChild(inp);
-            } else if (col.key === "PRICE" && priceEditable) {
+            } else if (
+              col.key === "PRICE" &&
+              (priceEditable || rowNeedsManualSkuFields(rowData))
+            ) {
               const inp = document.createElement("input");
               inp.type = "number";
               inp.min = "0";
               inp.step = "0.01";
-              inp.required = true;
-              inp.value = parseFloat(rowData.PRICE || 0).toFixed(2);
+              const manualSkuEntry = rowNeedsManualSkuFields(rowData);
+              inp.required = manualSkuEntry || (priceEditable && !rowData.deleted);
+              const rawPrice = rowData.PRICE;
+              if (manualSkuEntry) {
+                inp.value =
+                  rawPrice == null || String(rawPrice).trim() === ""
+                    ? ""
+                    : String(rawPrice);
+              } else {
+                inp.value = parseFloat(rowData.PRICE || 0).toFixed(2);
+              }
               inp.addEventListener("input", () => {
-                rowData.PRICE = parseFloat(inp.value) || 0;
+                const rawValue = inp.value.trim();
+                rowData.PRICE = rawValue === "" ? "" : parseFloat(rawValue) || 0;
                 updateExtended(rowIdx);
                 saveData();
               });
               td.appendChild(inp);
-            } else if (col.key === "CAT_NUM" && catEditable) {
+            } else if (
+              col.key === "CAT_NUM" &&
+              (catEditable || rowNeedsManualSkuFields(rowData))
+            ) {
               const inp = document.createElement("input");
               inp.type = "number";
-              inp.required = true;
+              const manualSkuEntry = rowNeedsManualSkuFields(rowData);
+              inp.required = manualSkuEntry || (catEditable && !rowData.deleted);
               inp.value = rowData.CAT_NUM || "";
               inp.addEventListener("change", () => {
-                rowData.CAT_NUM = inp.value;
+                rowData.CAT_NUM = inp.value.trim();
                 saveData();
               });
               td.appendChild(inp);
