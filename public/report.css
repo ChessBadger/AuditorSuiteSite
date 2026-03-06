@@ -1512,3 +1512,23 @@ main.panel {
     padding: 8px;
   }
 }
+
+/* Larger tap targets for location rows that open action popups */
+.report-row.report-main {
+  min-height: 40px;
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+
+@media (max-width: 900px) {
+  .report-row.report-main {
+    min-height: 43px;
+    padding-top: 7px;
+    padding-bottom: 7px;
+  }
+}
+
+/* Vertically center row content (without affecting header/footer alignment) */
+.report-row.report-grid {
+  align-items: center;
+}
