@@ -580,6 +580,8 @@ const BANNER_POLL_MS = 2500;
 const RECONNECT_PROBE_INTERVAL_MS = 3000;
 const RECONNECT_PROBE_TIMEOUT_MS = 3000;
 const WRITE_REQUEST_TIMEOUT_MS = 2500;
+const TABLET_PRESENCE_HEARTBEAT_MS = 5000;
+const TABLET_PRESENCE_HEARTBEAT_TIMEOUT_MS = 2500;
 
 let disconnectedSince = (() => {
   const raw = localStorage.getItem(CACHE_KEYS.DISCONNECTED_SINCE);
@@ -719,6 +721,62 @@ function updateDisconnectUI() {
   else showOfflineBanner(false);
 }
 
+let tabletPresenceHeartbeatInFlight = false;
+
+async function sendTabletPresenceHeartbeat() {
+  if (tabletPresenceHeartbeatInFlight) return false;
+  if (!navigator.onLine) return false;
+  if (document.visibilityState === "hidden") return false;
+
+  tabletPresenceHeartbeatInFlight = true;
+
+  try {
+    const controller =
+      typeof AbortController === "function" ? new AbortController() : null;
+    const timeoutId = controller
+      ? setTimeout(
+          () => controller.abort(),
+          TABLET_PRESENCE_HEARTBEAT_TIMEOUT_MS,
+        )
+      : null;
+
+    const res = await fetch("/api/tablet-presence/heartbeat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        client_timestamp: new Date().toISOString(),
+        visibility_state: document.visibilityState || "",
+        browser_online: navigator.onLine === true,
+        server_connection_state: serverConnectionState,
+      }),
+      cache: "no-store",
+      keepalive: true,
+      signal: controller?.signal,
+    }).finally(() => {
+      if (timeoutId) clearTimeout(timeoutId);
+    });
+
+    if (!res.ok) {
+      const t = await res.text().catch(() => "");
+      throw new Error(`HTTP ${res.status} ${t}`.trim());
+    }
+
+    markConnected();
+    return true;
+  } catch (err) {
+    if (looksLikeNetworkError(err)) {
+      markDisconnected();
+      updateDisconnectUI();
+      return false;
+    }
+
+    console.warn("tablet presence heartbeat failed", err);
+    return false;
+  } finally {
+    tabletPresenceHeartbeatInFlight = false;
+  }
+}
+
 let reconnectProbeInFlight = false;
 
 async function probeServerConnection() {
@@ -771,6 +829,7 @@ function triggerReconnectProbe({ setUnknown = false } = {}) {
 
 setInterval(updateDisconnectUI, BANNER_POLL_MS);
 window.addEventListener("online", () => {
+  sendTabletPresenceHeartbeat().catch(() => {});
   triggerReconnectProbe({ setUnknown: true });
 });
 window.addEventListener("offline", () => {
@@ -779,11 +838,13 @@ window.addEventListener("offline", () => {
   updateDisconnectUI();
 });
 window.addEventListener("focus", () => {
+  sendTabletPresenceHeartbeat().catch(() => {});
   if (serverConnectionState === "online") return;
   triggerReconnectProbe({ setUnknown: true });
 });
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState !== "visible") return;
+  sendTabletPresenceHeartbeat().catch(() => {});
   if (serverConnectionState === "online") return;
   triggerReconnectProbe({ setUnknown: true });
 });
@@ -793,6 +854,10 @@ setInterval(() => {
   if (!navigator.onLine) return;
   triggerReconnectProbe();
 }, RECONNECT_PROBE_INTERVAL_MS);
+
+setInterval(() => {
+  sendTabletPresenceHeartbeat().catch(() => {});
+}, TABLET_PRESENCE_HEARTBEAT_MS);
 
 function getPendingQueue() {
   const raw = localStorage.getItem(CACHE_KEYS.PENDING);
@@ -4874,6 +4939,7 @@ setActiveTab(currentTab);
 // One more: on initial load, if we already have pending writes, try to flush.
 flushPendingQueue();
 updateDisconnectUI();
+sendTabletPresenceHeartbeat().catch(() => {});
 if (navigator.onLine) {
   triggerReconnectProbe({ setUnknown: true });
 }

@@ -131,6 +131,7 @@ if (!fs.existsSync(REPORT_DIR)) fs.mkdirSync(REPORT_DIR, { recursive: true });
 
 const LOCATION_ACTIONS_FILE = path.join(REPORT_DIR, "location_actions.json");
 const REVIEW_STATUS_FILE = path.join(REPORT_DIR, "report_review_status.json");
+const TABLET_PRESENCE_FILE = path.join(REPORT_DIR, "tablet_presence.json");
 // Shape:
 // {
 //   "<file>": [
@@ -331,6 +332,12 @@ function applyReviewedStateForFile(file, reviewed, reviewed_at) {
 
 function invalidateReportExportsBundleCache() {
   reportExportsBundleCache = null;
+}
+
+function saveTabletPresenceToDisk(payload) {
+  const tmp = TABLET_PRESENCE_FILE + ".tmp";
+  fs.writeFileSync(tmp, JSON.stringify(payload, null, 2), "utf8");
+  fs.renameSync(tmp, TABLET_PRESENCE_FILE);
 }
 
 function mergeLocationActions(baseArr, storedArr, opts = {}) {
@@ -839,6 +846,61 @@ app.get("/api/locations", (req, res) => {
 // near the top, after your other route definitions
 app.get("/ping", (req, res) => {
   res.sendStatus(200);
+});
+
+app.post("/api/tablet-presence/heartbeat", (req, res) => {
+  const nowIso = new Date().toISOString();
+  const remoteAddress =
+    req.headers["x-forwarded-for"] ||
+    req.socket?.remoteAddress ||
+    req.ip ||
+    "";
+
+  const payload = {
+    device: "tablet",
+    page: "report",
+    last_heartbeat_at: nowIso,
+    client_timestamp:
+      typeof req.body?.client_timestamp === "string"
+        ? req.body.client_timestamp
+        : "",
+    visibility_state:
+      typeof req.body?.visibility_state === "string"
+        ? req.body.visibility_state
+        : "",
+    browser_online: req.body?.browser_online === true,
+    server_connection_state:
+      typeof req.body?.server_connection_state === "string"
+        ? req.body.server_connection_state
+        : "",
+    user_agent: String(req.headers["user-agent"] || ""),
+    remote_address: Array.isArray(remoteAddress)
+      ? String(remoteAddress[0] || "")
+      : String(remoteAddress || ""),
+  };
+
+  try {
+    saveTabletPresenceToDisk(payload);
+    return res.json({ success: true, last_heartbeat_at: nowIso });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+app.get("/api/tablet-presence", (req, res) => {
+  try {
+    if (!fs.existsSync(TABLET_PRESENCE_FILE)) {
+      return res.json({
+        device: "tablet",
+        page: "report",
+        last_heartbeat_at: "",
+      });
+    }
+
+    return res.json(readJsonFile(TABLET_PRESENCE_FILE));
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
 });
 
 app.get("/api/report-exports-test", (req, res) => {
