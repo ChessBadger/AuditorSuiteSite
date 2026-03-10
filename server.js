@@ -855,6 +855,18 @@ app.post("/api/tablet-presence/heartbeat", (req, res) => {
     req.socket?.remoteAddress ||
     req.ip ||
     "";
+  const normalizeStringList = (value) => {
+    if (!Array.isArray(value)) return [];
+    return Array.from(
+      new Set(
+        value
+          .map((v) => String(v ?? "").trim())
+          .filter(Boolean),
+      ),
+    );
+  };
+  const currentViewFiles = normalizeStringList(req.body?.current_view_files);
+  const currentViewAreaNums = normalizeStringList(req.body?.current_view_area_nums);
 
   const payload = {
     device: "tablet",
@@ -873,6 +885,15 @@ app.post("/api/tablet-presence/heartbeat", (req, res) => {
       typeof req.body?.server_connection_state === "string"
         ? req.body.server_connection_state
         : "",
+    current_view_mode:
+      typeof req.body?.current_view_mode === "string"
+        ? req.body.current_view_mode
+        : "",
+    current_view_files: currentViewFiles,
+    current_view_area_nums: currentViewAreaNums,
+    current_view_file: currentViewFiles.length > 0 ? currentViewFiles[0] : "",
+    current_view_area_num:
+      currentViewAreaNums.length > 0 ? currentViewAreaNums[0] : "",
     user_agent: String(req.headers["user-agent"] || ""),
     remote_address: Array.isArray(remoteAddress)
       ? String(remoteAddress[0] || "")

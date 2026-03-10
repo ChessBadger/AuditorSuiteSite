@@ -46,6 +46,29 @@ let latestRecountMs = 0;
 let latestRecountResultKeys = new Set();
 let latestReviewMs = 0;
 let reviewTimingStarted = false;
+const AREA_SEEN_DEBOUNCE_MS = 10 * 1000;
+const areaSeenSentAtByFile = new Map();
+let tabletCurrentViewMode = "list";
+let tabletCurrentViewFiles = [];
+let tabletCurrentViewAreaNums = [];
+
+function setTabletCurrentView(mode, files = [], areaNums = []) {
+  tabletCurrentViewMode = String(mode || "list").trim().toLowerCase() || "list";
+  tabletCurrentViewFiles = Array.from(
+    new Set(
+      (Array.isArray(files) ? files : [])
+        .map((v) => String(v || "").trim())
+        .filter(Boolean),
+    ),
+  );
+  tabletCurrentViewAreaNums = Array.from(
+    new Set(
+      (Array.isArray(areaNums) ? areaNums : [])
+        .map((v) => String(v ?? "").trim())
+        .filter(Boolean),
+    ),
+  );
+}
 
 const AGING_KEYS = {
   UNREVIEWED_FIRST_SEEN_BY_FILE: `${CACHE_NS}:UNREVIEWED_FIRST_SEEN_BY_FILE`,
@@ -748,6 +771,9 @@ async function sendTabletPresenceHeartbeat() {
         visibility_state: document.visibilityState || "",
         browser_online: navigator.onLine === true,
         server_connection_state: serverConnectionState,
+        current_view_mode: tabletCurrentViewMode,
+        current_view_files: tabletCurrentViewFiles,
+        current_view_area_nums: tabletCurrentViewAreaNums,
       }),
       cache: "no-store",
       keepalive: true,
@@ -1261,6 +1287,69 @@ async function patchCachedListReviewedFlag(file, reviewed, reviewed_at) {
       { ...cached, ts: Date.now(), data: list },
       "list",
     );
+  }
+}
+
+async function patchCachedListSeenFlag(file, seen_at) {
+  const cached = await cacheGetLarge(CACHE_KEYS.LIST);
+  if (!cached || !Array.isArray(cached.data)) return;
+
+  const list = cached.data.slice();
+  let changed = false;
+  const nextSeenMs = toMs(seen_at);
+
+  for (const it of list) {
+    if (!it || typeof it !== "object") continue;
+    if (String(it.file || "") !== String(file || "")) continue;
+
+    if ("seen_at" in it) {
+      const currentSeenMs = toMs(it.seen_at || "");
+      if (nextSeenMs > currentSeenMs) it.seen_at = seen_at;
+    }
+    if (it.data && typeof it.data === "object") {
+      const currentDataSeenMs = toMs(it.data.seen_at || "");
+      if (nextSeenMs > currentDataSeenMs) it.data.seen_at = seen_at;
+    }
+    changed = true;
+  }
+
+  if (changed) {
+    await cacheSetLarge(
+      CACHE_KEYS.LIST,
+      { ...cached, ts: Date.now(), data: list },
+      "list",
+    );
+  }
+}
+
+async function markAreaSeen(file, areaNum = "") {
+  const fileKey = String(file || "").trim();
+  if (!fileKey) return;
+
+  const nowMs = Date.now();
+  const lastSentMs = Number(areaSeenSentAtByFile.get(fileKey) || 0);
+  if (nowMs - lastSentMs < AREA_SEEN_DEBOUNCE_MS) return;
+  areaSeenSentAtByFile.set(fileKey, nowMs);
+
+  const seen_at = new Date(nowMs).toISOString();
+  try {
+    await postJsonQueued(
+      `/api/report-exports/${encodeURIComponent(fileKey)}/seen`,
+      { area_num: areaNum ?? "", seen_at },
+      {
+        applyLocal: async () => {
+          await patchCachedFile(fileKey, (d) => {
+            const currentSeenMs = toMs(d?.seen_at || "");
+            if (toMs(seen_at) > currentSeenMs) d.seen_at = seen_at;
+          });
+          await patchCachedListSeenFlag(fileKey, seen_at);
+        },
+      },
+    );
+  } catch (e) {
+    // Allow retry if this failed for a non-network reason.
+    areaSeenSentAtByFile.delete(fileKey);
+    throw e;
   }
 }
 
@@ -3628,6 +3717,7 @@ async function loadAreaList(options = {}) {
   currentView.file = null;
   currentView.groupId = null;
   currentView.members = null;
+  setTabletCurrentView("list", [], []);
 
   statusEl.textContent = "Loading…";
   if (keepCurrentList) statusEl.textContent = "Refreshing...";
@@ -3697,6 +3787,7 @@ async function loadAreaList(options = {}) {
       group_id: eg.group_id,
       reviewed: data.reviewed === true,
       reviewed_at: data.reviewed_at || "",
+      seen_at: data.seen_at || "",
       area_total_current: areaTotalCurrent,
       recounts: extractRecountLocations(data, String(it?.file || "")),
       questions: extractQuestionLocations(data, String(it?.file || "")),
@@ -4120,6 +4211,11 @@ async function loadAreaGroup(groupId, members) {
   currentView.groupId = groupId;
   currentView.members = members;
   currentView.file = null;
+  setTabletCurrentView(
+    "group",
+    (members || []).map((m) => m?.file),
+    (members || []).map((m) => m?.area_num),
+  );
 
   statusEl.textContent = `Loading group…`;
 
@@ -4149,6 +4245,14 @@ async function loadAreaGroup(groupId, members) {
   if (results.length === 0) {
     statusEl.textContent = "Failed to load group. No cached data available.";
     return;
+  }
+
+  for (const r of results) {
+    const seenFile = String(r?.meta?.file || "");
+    const seenAreaNum = r?.data?.area_num ?? r?.meta?.area_num ?? "";
+    markAreaSeen(seenFile, seenAreaNum).catch((e) => {
+      console.warn("markAreaSeen failed", seenFile, e);
+    });
   }
 
   // report view: fullscreen
@@ -4544,6 +4648,7 @@ async function loadArea(file, options = {}) {
   currentView.file = file;
   currentView.groupId = null;
   currentView.members = null;
+  setTabletCurrentView("area", [file], []);
 
   statusEl.textContent = `Loading…`;
 
@@ -4575,6 +4680,11 @@ async function loadArea(file, options = {}) {
   if (fromCache) {
     statusEl.textContent = `Loading… (cached)`;
   }
+
+  setTabletCurrentView("area", [file], [data?.area_num ?? ""]);
+  markAreaSeen(file, data?.area_num ?? "").catch((e) => {
+    console.warn("markAreaSeen failed", file, e);
+  });
 
   const locs = Array.isArray(data.locations) ? data.locations : [];
   const isScanReport = data.report_type === "scan_report";
@@ -4902,7 +5012,25 @@ async function loadArea(file, options = {}) {
   }
 }
 
-refreshBtn?.addEventListener("click", () => {
+async function confirmBeforeRefreshFromAreaView() {
+  if (currentView.type !== "area") return true;
+
+  const markBtn = document.getElementById("mark-reviewed");
+  if (!markBtn || markBtn.disabled) return true;
+
+  const shouldMark = await promptMarkReviewedBeforeClose();
+  if (shouldMark) {
+    markBtn.click();
+    return false;
+  }
+
+  return true;
+}
+
+refreshBtn?.addEventListener("click", async () => {
+  const canRefresh = await confirmBeforeRefreshFromAreaView();
+  if (!canRefresh) return;
+
   triggerReconnectProbe({ setUnknown: true });
   returnToToReviewList({ forceRefresh: true });
 });
