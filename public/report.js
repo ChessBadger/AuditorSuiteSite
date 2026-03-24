@@ -871,6 +871,9 @@ window.addEventListener("focus", () => {
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState !== "visible") return;
   sendTabletPresenceHeartbeat().catch(() => {});
+  if (chatState.open && !chatState.loading) {
+    loadAndRenderChat({ scrollToBottom: isChatNearBottom() });
+  }
   if (serverConnectionState === "online") return;
   triggerReconnectProbe({ setUnknown: true });
 });
@@ -3428,11 +3431,164 @@ async function evictOldFilesIfNeeded() {
 // No search; tablet-optimized modal.
 // --------------------
 const CHAT_USER = "Store Manager";
+const CHAT_SIDE_SUPERVISOR = "supervisor";
+const CHAT_SIDE_TABLET = "tablet";
+const CHAT_POLL_MS = 2000;
 
 const chatState = {
   open: false,
   loading: false,
+  pollTimerId: 0,
 };
+
+function normalizeChatSide(side, user) {
+  const raw = String(side || "")
+    .trim()
+    .toLowerCase();
+  if (raw === CHAT_SIDE_SUPERVISOR) return CHAT_SIDE_SUPERVISOR;
+  if (raw === CHAT_SIDE_TABLET) return CHAT_SIDE_TABLET;
+
+  const name = String(user || "")
+    .trim()
+    .toLowerCase();
+  if (name === "store manager") return CHAT_SIDE_TABLET;
+  if (name) return CHAT_SIDE_SUPERVISOR;
+  return CHAT_SIDE_TABLET;
+}
+
+function formatChatReceiptTimestamp(ts) {
+  const raw = String(ts || "").trim();
+  if (!raw) return "";
+
+  const dt = new Date(raw);
+  if (Number.isNaN(dt.getTime())) return raw;
+
+  return dt.toLocaleString(undefined, {
+    month: "numeric",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function getChatReceiptSummary(msg) {
+  const m = msg && typeof msg === "object" ? msg : {};
+  const senderSide = normalizeChatSide(m.sender_side, m.user || m.from);
+
+  if (senderSide === CHAT_SIDE_SUPERVISOR) {
+    const readAt = formatChatReceiptTimestamp(m.read_by_tablet_at);
+    if (readAt) return `Read by tablet ${readAt}`;
+
+    const deliveredAt = formatChatReceiptTimestamp(m.delivered_to_tablet_at);
+    if (deliveredAt) return `Delivered to tablet ${deliveredAt}`;
+
+    return "Sent";
+  }
+
+  const readAt = formatChatReceiptTimestamp(m.read_by_supervisor_at);
+  if (readAt) return `Read by supervisor ${readAt}`;
+
+  const deliveredAt = formatChatReceiptTimestamp(m.delivered_to_supervisor_at);
+  if (deliveredAt) return `Delivered to supervisor ${deliveredAt}`;
+
+  return "Sent";
+}
+
+function mutateChatReceiptState(
+  chatObj,
+  receiverSide,
+  { markRead = false } = {},
+) {
+  const data = chatObj && typeof chatObj === "object" ? chatObj : null;
+  const msgs = Array.isArray(data?.messages)
+    ? data.messages
+    : Array.isArray(chatObj)
+      ? chatObj
+      : [];
+
+  if (msgs.length === 0) return false;
+
+  const nowIso = new Date().toISOString();
+  let changed = false;
+
+  for (const msg of msgs) {
+    if (!msg || typeof msg !== "object") continue;
+
+    const senderSide = normalizeChatSide(msg.sender_side, msg.user || msg.from);
+    msg.sender_side = senderSide;
+
+    if (senderSide === receiverSide) continue;
+
+    if (receiverSide === CHAT_SIDE_TABLET) {
+      if (!String(msg.delivered_to_tablet_at || "").trim()) {
+        msg.delivered_to_tablet_at = nowIso;
+        changed = true;
+      }
+      if (markRead && !String(msg.read_by_tablet_at || "").trim()) {
+        msg.read_by_tablet_at = nowIso;
+        changed = true;
+      }
+      continue;
+    }
+
+    if (!String(msg.delivered_to_supervisor_at || "").trim()) {
+      msg.delivered_to_supervisor_at = nowIso;
+      changed = true;
+    }
+    if (markRead && !String(msg.read_by_supervisor_at || "").trim()) {
+      msg.read_by_supervisor_at = nowIso;
+      changed = true;
+    }
+  }
+
+  return changed;
+}
+
+async function syncTabletChatReceipts(chatObj, { markRead = false } = {}) {
+  const changed = mutateChatReceiptState(chatObj, CHAT_SIDE_TABLET, {
+    markRead,
+  });
+  if (!changed) return false;
+
+  await patchCachedChat((data) => {
+    mutateChatReceiptState(data, CHAT_SIDE_TABLET, { markRead });
+  });
+
+  try {
+    await postJsonQueued("/api/chatlog/receipts", {
+      side: CHAT_SIDE_TABLET,
+      status: markRead ? "read" : "delivered",
+    });
+  } catch (e) {
+    console.warn("Could not sync chat receipts", e);
+  }
+
+  return true;
+}
+
+function isChatNearBottom() {
+  const body = document.getElementById("chat-body");
+  if (!body) return true;
+
+  const remaining = body.scrollHeight - body.scrollTop - body.clientHeight;
+  return remaining <= 48;
+}
+
+function stopChatPolling() {
+  if (chatState.pollTimerId) {
+    clearInterval(chatState.pollTimerId);
+    chatState.pollTimerId = 0;
+  }
+}
+
+function startChatPolling() {
+  stopChatPolling();
+  chatState.pollTimerId = window.setInterval(() => {
+    if (!chatState.open || chatState.loading) return;
+    loadAndRenderChat({ scrollToBottom: isChatNearBottom() });
+  }, CHAT_POLL_MS);
+}
 
 function ensureChatModal() {
   if (document.getElementById("chatlog-modal")) return;
@@ -3486,6 +3642,7 @@ function openChatModal() {
   installVisualViewportFixForChat();
 
   chatState.open = true;
+  startChatPolling();
   const m = document.getElementById("chatlog-modal");
   m.style.display = "flex";
 
@@ -3499,6 +3656,7 @@ function openChatModal() {
 
 function closeChatModal() {
   chatState.open = false;
+  stopChatPolling();
   const m = document.getElementById("chatlog-modal");
   if (m) m.style.display = "none";
 }
@@ -3569,9 +3727,9 @@ function renderChat(chatObj, { scrollToBottom } = {}) {
           });
 
       const isMe =
-        String(from).trim().toLowerCase() ===
-        String(CHAT_USER).trim().toLowerCase();
+        normalizeChatSide(m.sender_side, from) === CHAT_SIDE_TABLET;
       const whoClass = isMe ? "chat-me" : "chat-them";
+      const receipt = getChatReceiptSummary(m);
 
       return `
 <div class="chat-msg ${whoClass}">
@@ -3580,6 +3738,7 @@ function renderChat(chatObj, { scrollToBottom } = {}) {
     <div class="chat-time mono">${escapeHtml(time)}</div>
   </div>
   <div class="chat-bubble">${escapeHtml(text)}</div>
+  <div class="chat-receipt mono">${escapeHtml(receipt)}</div>
 </div>`;
     })
     .join("");
@@ -3598,6 +3757,11 @@ async function loadAndRenderChat({ scrollToBottom } = {}) {
     body.innerHTML = `<div class="muted" style="padding:10px;">Loading chat…</div>`;
 
     const out = await fetchJsonWithCache("/api/chatlog", CACHE_KEYS.CHAT);
+    if (chatState.open) {
+      await syncTabletChatReceipts(out.data, {
+        markRead: document.visibilityState === "visible",
+      });
+    }
     renderChat(out.data, { scrollToBottom });
     latestChatMsgMs = computeLatestChatMs(out.data);
     if (chatState.open) markChatSeen();
@@ -3649,10 +3813,15 @@ async function sendChatMessage() {
   btn.disabled = true;
   ta.disabled = true;
 
+  const nowIso = new Date().toISOString();
   const payload = {
+    id: `${Date.now()}_${Math.random().toString(16).slice(2)}`,
     user: name,
     message: text,
-    timestamp: new Date().toISOString(),
+    timestamp: nowIso,
+    sender_side: CHAT_SIDE_TABLET,
+    delivered_to_tablet_at: nowIso,
+    read_by_tablet_at: nowIso,
   };
 
   try {
@@ -3661,11 +3830,11 @@ async function sendChatMessage() {
         // Optimistic update so chat works offline
         await patchCachedChat((data) => {
           if (Array.isArray(data)) {
-            data.push({ id: `${Date.now()}_local`, ...payload });
+            data.push({ ...payload });
             return;
           }
           if (!Array.isArray(data.messages)) data.messages = [];
-          data.messages.push({ id: `${Date.now()}_local`, ...payload });
+          data.messages.push({ ...payload });
         });
       },
     });

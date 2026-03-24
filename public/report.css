@@ -1046,6 +1046,12 @@ body.admin-mode #admin-badge {
   line-height: 1.25;
 }
 
+.chat-receipt {
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
 .chat-compose {
   border-top: 1px solid #eee;
   padding: 10px 12px max(12px, env(safe-area-inset-bottom));
@@ -1097,6 +1103,10 @@ body.admin-mode #admin-badge {
   text-align: right;
 }
 
+.chat-msg.chat-me .chat-receipt {
+  text-align: right;
+}
+
 .chat-msg.chat-me .chat-bubble {
   align-self: flex-end;
   background: var(--primary);
@@ -1112,6 +1122,10 @@ body.admin-mode #admin-badge {
 
 .chat-msg.chat-them .chat-bubble {
   border-top-left-radius: 6px;
+}
+
+.chat-msg.chat-them .chat-receipt {
+  text-align: left;
 }
 
 /* Notification dot (unread chat / unanswered new replies) */

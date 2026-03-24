@@ -653,15 +653,59 @@ if (fs.existsSync(REPORT_DIR)) {
 
 // --- Chat log (Report-Site/chatlog.json) ---
 // Canonical format:
-// { "messages": [ { "timestamp": "...", "user": "...", "message": "..." } ] }
+// {
+//   "messages": [
+//     {
+//       "id": "...",
+//       "timestamp": "...",
+//       "user": "...",
+//       "sender_side": "supervisor" | "tablet",
+//       "message": "...",
+//       "delivered_to_supervisor_at": "...",
+//       "delivered_to_tablet_at": "...",
+//       "read_by_supervisor_at": "...",
+//       "read_by_tablet_at": "..."
+//     }
+//   ]
+// }
 const CHATLOG_FILE = path.join(REPORT_DIR, "chatlog.json");
 let chatLog = { messages: [] };
+const CHAT_SIDE_SUPERVISOR = "supervisor";
+const CHAT_SIDE_TABLET = "tablet";
 
 function normalizeJsonText(raw) {
   return String(raw || "")
     .replace(/^\uFEFF/, "")
     .replace(/\u0000/g, "")
     .trim();
+}
+
+function generateChatMessageId() {
+  return `${Date.now()}_${Math.random().toString(16).slice(2)}`;
+}
+
+function normalizeExplicitChatSide(side) {
+  const raw = String(side ?? "")
+    .trim()
+    .toLowerCase();
+  if (raw === CHAT_SIDE_SUPERVISOR) return CHAT_SIDE_SUPERVISOR;
+  if (raw === CHAT_SIDE_TABLET) return CHAT_SIDE_TABLET;
+  return "";
+}
+
+function normalizeChatSide(side, user) {
+  const explicit = normalizeExplicitChatSide(side);
+  if (explicit) return explicit;
+
+  const userName = String(user ?? "").trim().toLowerCase();
+  if (userName === "store manager") return CHAT_SIDE_TABLET;
+  if (userName) return CHAT_SIDE_SUPERVISOR;
+  return CHAT_SIDE_TABLET;
+}
+
+function nullIfBlank(value) {
+  const trimmed = String(value ?? "").trim();
+  return trimmed || null;
 }
 
 function normalizeChatMessage(m) {
@@ -673,7 +717,19 @@ function normalizeChatMessage(m) {
 
   if (!user || !message) return null;
 
-  return { timestamp, user, message };
+  const senderSide = normalizeChatSide(m?.sender_side, user);
+
+  return {
+    id: String(m?.id ?? m?.message_id ?? "").trim() || generateChatMessageId(),
+    timestamp,
+    user,
+    sender_side: senderSide,
+    message,
+    delivered_to_supervisor_at: nullIfBlank(m?.delivered_to_supervisor_at),
+    delivered_to_tablet_at: nullIfBlank(m?.delivered_to_tablet_at),
+    read_by_supervisor_at: nullIfBlank(m?.read_by_supervisor_at),
+    read_by_tablet_at: nullIfBlank(m?.read_by_tablet_at),
+  };
 }
 
 function loadChatLogFromDisk() {
@@ -723,6 +779,150 @@ function saveChatLogToDisk() {
   const tmp = CHATLOG_FILE + ".tmp";
   fs.writeFileSync(tmp, JSON.stringify(chatLog, null, 2), "utf8");
   fs.renameSync(tmp, CHATLOG_FILE);
+}
+
+function ensureChatLogSizeLimit() {
+  if (!Array.isArray(chatLog.messages)) chatLog.messages = [];
+  if (chatLog.messages.length > 2000) {
+    chatLog.messages = chatLog.messages.slice(chatLog.messages.length - 2000);
+  }
+}
+
+function buildPostedChatMessage(body) {
+  const timestamp =
+    String(body?.timestamp ?? "").trim() || new Date().toISOString();
+  const user = String(body?.user ?? body?.from ?? "Store Manager").trim();
+  const message = String(body?.message ?? body?.text ?? "").trim();
+  const senderSide = normalizeChatSide(body?.sender_side, user);
+
+  if (!user || !message) return null;
+
+  const msg = normalizeChatMessage({
+    id: body?.id,
+    timestamp,
+    user,
+    sender_side: senderSide,
+    message,
+    delivered_to_supervisor_at: body?.delivered_to_supervisor_at,
+    delivered_to_tablet_at: body?.delivered_to_tablet_at,
+    read_by_supervisor_at: body?.read_by_supervisor_at,
+    read_by_tablet_at: body?.read_by_tablet_at,
+  });
+
+  if (!msg) return null;
+
+  if (senderSide === CHAT_SIDE_SUPERVISOR) {
+    if (!msg.delivered_to_supervisor_at) {
+      msg.delivered_to_supervisor_at = timestamp;
+    }
+    if (!msg.read_by_supervisor_at) {
+      msg.read_by_supervisor_at = timestamp;
+    }
+  } else {
+    if (!msg.delivered_to_tablet_at) {
+      msg.delivered_to_tablet_at = timestamp;
+    }
+    if (!msg.read_by_tablet_at) {
+      msg.read_by_tablet_at = timestamp;
+    }
+  }
+
+  return msg;
+}
+
+function updateChatReceiptStatus(side, status) {
+  const receiverSide = normalizeExplicitChatSide(side);
+  const normalizedStatus = String(status ?? "")
+    .trim()
+    .toLowerCase();
+
+  if (
+    receiverSide !== CHAT_SIDE_SUPERVISOR &&
+    receiverSide !== CHAT_SIDE_TABLET
+  ) {
+    return { ok: false, error: "Missing side" };
+  }
+
+  if (normalizedStatus !== "delivered" && normalizedStatus !== "read") {
+    return { ok: false, error: "Invalid status" };
+  }
+
+  if (!Array.isArray(chatLog.messages)) chatLog.messages = [];
+
+  let changed = false;
+  const now = new Date().toISOString();
+
+  for (const row of chatLog.messages) {
+    if (!row || typeof row !== "object") continue;
+
+    const senderSide = normalizeChatSide(row.sender_side, row.user);
+    row.sender_side = senderSide;
+
+    if (senderSide === receiverSide) continue;
+
+    if (receiverSide === CHAT_SIDE_SUPERVISOR) {
+      if (!row.delivered_to_supervisor_at) {
+        row.delivered_to_supervisor_at = now;
+        changed = true;
+      }
+      if (normalizedStatus === "read" && !row.read_by_supervisor_at) {
+        row.read_by_supervisor_at = now;
+        changed = true;
+      }
+    } else {
+      if (!row.delivered_to_tablet_at) {
+        row.delivered_to_tablet_at = now;
+        changed = true;
+      }
+      if (normalizedStatus === "read" && !row.read_by_tablet_at) {
+        row.read_by_tablet_at = now;
+        changed = true;
+      }
+    }
+  }
+
+  if (changed) {
+    ensureChatLogSizeLimit();
+    saveChatLogToDisk();
+  }
+
+  return { ok: true, changed };
+}
+
+function handleGetChatLog(req, res) {
+  res.json(chatLog);
+}
+
+function handlePostChatLog(req, res) {
+  const msg = buildPostedChatMessage(req.body);
+
+  if (!msg?.user) return res.status(400).json({ error: "Missing user" });
+  if (!msg?.message) return res.status(400).json({ error: "Missing message" });
+
+  if (!Array.isArray(chatLog.messages)) chatLog.messages = [];
+  chatLog.messages.push(msg);
+  ensureChatLogSizeLimit();
+
+  try {
+    saveChatLogToDisk();
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+
+  res.json({ success: true, message: msg });
+}
+
+function handlePostChatReceipts(req, res) {
+  try {
+    const result = updateChatReceiptStatus(req.body?.side, req.body?.status);
+    if (!result.ok) {
+      return res.status(400).json({ error: result.error });
+    }
+
+    res.json({ success: true, changed: !!result.changed });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
 }
 
 // Reload chat in memory if edited externally
@@ -1089,42 +1289,12 @@ app.get("/api/report-exports-bundle", (req, res) => {
 // Chatlog API
 // GET returns { messages: [...] }
 // POST appends a message and persists to Report-Site/chatlog.json
+// POST /receipts marks incoming messages delivered or read for one side
 // --------------------
 
-app.get("/api/chatlog", (req, res) => {
-  res.json(chatLog);
-});
-
-app.post("/api/chatlog", (req, res) => {
-  // Accept either canonical or legacy post body:
-  // canonical: { user, message, timestamp }
-  // legacy:    { from, text, timestamp }
-  const user = "Store Manager";
-  const message = String(req.body?.message ?? req.body?.text ?? "").trim();
-  const timestamp =
-    String(req.body?.timestamp ?? "").trim() || new Date().toISOString();
-
-  if (!user) return res.status(400).json({ error: "Missing user" });
-  if (!message) return res.status(400).json({ error: "Missing message" });
-
-  const msg = { timestamp, user, message };
-
-  if (!Array.isArray(chatLog.messages)) chatLog.messages = [];
-  chatLog.messages.push(msg);
-
-  // cap growth
-  if (chatLog.messages.length > 2000) {
-    chatLog.messages = chatLog.messages.slice(chatLog.messages.length - 2000);
-  }
-
-  try {
-    saveChatLogToDisk();
-  } catch (err) {
-    return res.status(500).json({ error: err.message });
-  }
-
-  res.json({ success: true, message: msg });
-});
+app.get("/api/chatlog", handleGetChatLog);
+app.post("/api/chatlog", handlePostChatLog);
+app.post("/api/chatlog/receipts", handlePostChatReceipts);
 
 // Fetch one area export by filename (e.g. 40051.json)
 app.get("/api/report-exports/:file", (req, res) => {
@@ -1338,45 +1508,6 @@ app.post("/api/report-exports/:file/reviewed", (req, res) => {
         ? effective.reviewed_at
         : "",
   });
-});
-
-// --------------------
-// Chatlog API
-// --------------------
-app.get("/api/chatlog", (req, res) => {
-  res.json(chatLog);
-});
-
-app.post("/api/chatlog", (req, res) => {
-  const from = String(req.body?.from ?? "").trim();
-  const text = String(req.body?.text ?? "").trim();
-  const timestamp =
-    String(req.body?.timestamp ?? "").trim() || new Date().toISOString();
-
-  if (!from) return res.status(400).json({ error: "Missing from" });
-  if (!text) return res.status(400).json({ error: "Missing text" });
-
-  const msg = {
-    id: `${Date.now()}_${Math.random().toString(16).slice(2)}`,
-    from,
-    text,
-    timestamp,
-  };
-
-  if (!Array.isArray(chatLog.messages)) chatLog.messages = [];
-  chatLog.messages.push(msg);
-
-  if (chatLog.messages.length > 2000) {
-    chatLog.messages = chatLog.messages.slice(chatLog.messages.length - 2000);
-  }
-
-  try {
-    saveChatLogToDisk();
-  } catch (err) {
-    return res.status(500).json({ error: err.message });
-  }
-
-  res.json({ success: true, message: msg });
 });
 
 // â”€â”€â”€ POST /api/reports/:name/complete â”€â”€â”€
