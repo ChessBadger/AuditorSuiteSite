@@ -316,6 +316,17 @@ function applyReviewedStateForFile(file, reviewed, reviewed_at) {
   const data = reportExportCache.get(file);
   if (!data) return false;
 
+  const existingStatus =
+    reviewStatusStore[file] && typeof reviewStatusStore[file] === "object"
+      ? reviewStatusStore[file]
+      : null;
+  const seen_at =
+    existingStatus && typeof existingStatus.seen_at === "string"
+      ? existingStatus.seen_at
+      : typeof data.seen_at === "string"
+        ? data.seen_at
+        : "";
+
   data.reviewed = reviewed;
   if (reviewed) {
     data.reviewed_at = reviewed_at;
@@ -324,6 +335,51 @@ function applyReviewedStateForFile(file, reviewed, reviewed_at) {
   reviewStatusStore[file] = {
     reviewed,
     reviewed_at: reviewed ? reviewed_at : data.reviewed_at || "",
+    seen_at,
+  };
+
+  reportExportCache.set(file, data);
+  return true;
+}
+
+function applySeenStateForFile(file, seen_at) {
+  const data = reportExportCache.get(file);
+  if (!data) return false;
+
+  const nextSeenMs = Date.parse(String(seen_at || ""));
+  const currentDataSeenAt =
+    typeof data.seen_at === "string" ? data.seen_at : "";
+  const currentDataSeenMs = Date.parse(currentDataSeenAt);
+  if (
+    !Number.isFinite(currentDataSeenMs) ||
+    (Number.isFinite(nextSeenMs) && nextSeenMs >= currentDataSeenMs)
+  ) {
+    data.seen_at = seen_at;
+  }
+
+  const existingStatus =
+    reviewStatusStore[file] && typeof reviewStatusStore[file] === "object"
+      ? reviewStatusStore[file]
+      : null;
+  const currentStatusSeenAt =
+    existingStatus && typeof existingStatus.seen_at === "string"
+      ? existingStatus.seen_at
+      : "";
+  const currentStatusSeenMs = Date.parse(currentStatusSeenAt);
+  const mergedSeenAt =
+    !currentStatusSeenAt ||
+    !Number.isFinite(currentStatusSeenMs) ||
+    (Number.isFinite(nextSeenMs) && nextSeenMs >= currentStatusSeenMs)
+      ? seen_at
+      : currentStatusSeenAt;
+
+  reviewStatusStore[file] = {
+    reviewed: existingStatus ? existingStatus.reviewed === true : data.reviewed === true,
+    reviewed_at:
+      existingStatus && typeof existingStatus.reviewed_at === "string"
+        ? existingStatus.reviewed_at
+        : data.reviewed_at || "",
+    seen_at: mergedSeenAt,
   };
 
   reportExportCache.set(file, data);
@@ -1181,6 +1237,10 @@ app.get("/api/report-exports", (req, res) => {
           status && typeof status.reviewed_at === "string"
             ? status.reviewed_at
             : data.reviewed_at || "",
+        seen_at:
+          status && typeof status.seen_at === "string"
+            ? status.seen_at
+            : data.seen_at || "",
       };
     })
     .sort((a, b) => String(a.area_num).localeCompare(String(b.area_num)));
@@ -1236,6 +1296,9 @@ function buildMergedReportExportForResponse(file, base, opts = {}) {
     out.reviewed = reviewStatus.reviewed === true;
     if (typeof reviewStatus.reviewed_at === "string") {
       out.reviewed_at = reviewStatus.reviewed_at;
+    }
+    if (typeof reviewStatus.seen_at === "string") {
+      out.seen_at = reviewStatus.seen_at;
     }
   }
   return out;
@@ -1436,6 +1499,38 @@ app.post("/api/reports/:name", (req, res) => {
 
 // â”€â”€â”€ POST reviewed flag â”€â”€â”€
 // Body: { reviewed: true/false, reviewed_at?: ISO string }
+app.post("/api/report-exports/:file/seen", (req, res) => {
+  syncReportExportCacheFromDisk();
+  const file = req.params.file;
+  if (!reportExportCache.has(file)) {
+    return res.status(404).json({ error: "Report export not found" });
+  }
+
+  const seen_at =
+    typeof req.body?.seen_at === "string" && req.body.seen_at.trim()
+      ? req.body.seen_at
+      : new Date().toISOString();
+
+  syncReviewStatusStoreFromDiskIfChanged();
+  applySeenStateForFile(file, seen_at);
+  const effective = reviewStatusStore[file];
+
+  try {
+    saveReviewStatusToDisk();
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+
+  return res.json({
+    success: true,
+    file,
+    seen_at:
+      effective && typeof effective.seen_at === "string"
+        ? effective.seen_at
+        : seen_at,
+  });
+});
+
 app.post("/api/report-exports/reviewed-batch", (req, res) => {
   syncReportExportCacheFromDisk();
   const files = Array.isArray(req.body?.files) ? req.body.files : [];
