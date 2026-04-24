@@ -6,6 +6,23 @@ document.addEventListener("DOMContentLoaded", () => {
   const listEl = document.getElementById("item-list");
   const recContainer = document.getElementById("record-container");
   const container = document.querySelector(".container");
+  const appFrame =
+    document.querySelector(".tablet-landscape-frame") || document.body;
+
+  function syncPortraitTabletViewport() {
+    document.documentElement.style.setProperty(
+      "--portrait-tablet-width",
+      `${window.innerWidth}px`,
+    );
+    document.documentElement.style.setProperty(
+      "--portrait-tablet-height",
+      `${window.innerHeight}px`,
+    );
+  }
+
+  syncPortraitTabletViewport();
+  window.addEventListener("resize", syncPortraitTabletViewport);
+  window.addEventListener("orientationchange", syncPortraitTabletViewport);
 
   let currentView = "employee";
   const btnSKU = document.getElementById("btn-sku");
@@ -92,7 +109,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       dialog.appendChild(buttonRow);
       overlay.appendChild(dialog);
-      document.body.appendChild(overlay);
+      appFrame.appendChild(overlay);
 
       document.addEventListener("keydown", keyHandler, true);
 
@@ -279,7 +296,7 @@ document.addEventListener("DOMContentLoaded", () => {
         Tap to resume
       </button>
     `;
-    document.body.appendChild(el);
+    appFrame.appendChild(el);
 
     document
       .getElementById("fs-overlay-btn")
@@ -297,10 +314,23 @@ document.addEventListener("DOMContentLoaded", () => {
         docEl.webkitRequestFullscreen ||
         docEl.msRequestFullscreen;
       if (req) await req.call(docEl);
+      await lockLandscapeOrientation();
     } catch (e) {
       console.error(e);
     } finally {
       refreshFullscreenBtnLabel();
+    }
+  }
+
+  async function lockLandscapeOrientation() {
+    const orientation = screen.orientation;
+    if (!orientation || typeof orientation.lock !== "function") return;
+
+    try {
+      await orientation.lock("landscape");
+    } catch (e) {
+      // Some browsers only allow this in fullscreen, and others never allow it.
+      // The CSS rotation remains the fallback for those devices.
     }
   }
 
@@ -357,6 +387,7 @@ document.addEventListener("DOMContentLoaded", () => {
           docEl.webkitRequestFullscreen ||
           docEl.msRequestFullscreen;
         if (req) await req.call(docEl);
+        await lockLandscapeOrientation();
       } else {
         const exit =
           document.exitFullscreen ||
@@ -525,7 +556,7 @@ document.addEventListener("DOMContentLoaded", () => {
     sidebarBackdrop.addEventListener("click", () => {
       closeSidebar();
     });
-    document.body.appendChild(sidebarBackdrop);
+    appFrame.appendChild(sidebarBackdrop);
   }
 
   function openSidebar() {

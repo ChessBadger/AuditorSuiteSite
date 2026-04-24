@@ -28,6 +28,9 @@
   /* Sizing */
   --radius: 12px;
   --radius-sm: 8px;
+  --app-height: 100vh;
+  --portrait-tablet-width: 100vw;
+  --portrait-tablet-height: 100vh;
 }
 
 /*------------- Base -------------*/
@@ -49,6 +52,11 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+.tablet-landscape-frame {
+  min-height: 100%;
+  background: var(--bg);
+}
+
 h1 {
   font-size: clamp(1.25rem, 1.2rem + 1vw, 1.75rem);
   text-align: center;
@@ -66,7 +74,7 @@ input {
 .container {
   display: flex;
   width: min(1300px, 100%);
-  height: calc(100vh - 5.25rem);
+  height: calc(var(--app-height) - 5.25rem);
   margin: 0.75rem auto 1rem;
   background: var(--surface);
   border: 1px solid var(--border);
@@ -688,7 +696,7 @@ body.admin-mode #admin-badge {
 }
 @media (max-width: 840px) {
   .container {
-    height: calc(100vh - 5.75rem);
+    height: calc(var(--app-height) - 5.75rem);
   }
   .sku-search {
     width: 100%;
@@ -774,7 +782,7 @@ body.admin-mode #admin-badge {
 .container {
   width: min(1360px, calc(100% - 1rem));
   margin: 0.6rem auto 0.8rem;
-  height: calc(100vh - 11rem);
+  height: calc(var(--app-height) - 11rem);
 }
 
 #record-container {
@@ -821,7 +829,7 @@ body.admin-mode #admin-badge {
   .container {
     position: relative;
     width: calc(100% - 0.5rem);
-    height: calc(100vh - 10.8rem);
+    height: calc(var(--app-height) - 10.8rem);
     margin-top: 0.45rem;
   }
 
@@ -869,5 +877,42 @@ body.admin-mode #admin-badge {
 
   .logo {
     max-height: 42px;
+  }
+}
+
+@media (orientation: portrait) and (pointer: coarse) and (min-width: 600px) and (max-width: 1100px) {
+  :root {
+    --app-height: 100vw;
+  }
+
+  @supports (height: 100dvw) {
+    :root {
+      --app-height: 100dvw;
+    }
+  }
+
+  html,
+  body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+  }
+
+  .tablet-landscape-frame {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: var(--portrait-tablet-height);
+    height: var(--portrait-tablet-width);
+    overflow: hidden;
+    transform: translateX(var(--portrait-tablet-width)) rotate(90deg);
+    transform-origin: top left;
+  }
+
+  @supports (height: 100dvw) {
+    .tablet-landscape-frame {
+      width: var(--portrait-tablet-height);
+      height: var(--portrait-tablet-width);
+    }
   }
 }
