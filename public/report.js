@@ -3165,12 +3165,12 @@ function ensureReviewCloseModal() {
   <div class="modal">
     <div class="modal-header">
       <div>
-        <div style="font-weight:800; font-size:20px;">Mark Area Reviewed?</div>
-        <div class="muted" style="margin-top:4px;">This area has not been reviewed yet.</div>
+        <div id="review-close-title" style="font-weight:800; font-size:20px;">Mark Area Reviewed?</div>
+        <div id="review-close-subtitle" class="muted" style="margin-top:4px;">This area has not been reviewed yet.</div>
       </div>
       <button id="review-close-x" class="btn" type="button">✕</button>
     </div>
-    <div class="modal-body">
+    <div id="review-close-body" class="modal-body">
       Mark this area as reviewed before closing?
     </div>
     <div class="modal-footer">
@@ -3194,9 +3194,34 @@ function promptMarkReviewedBeforeClose() {
     const btnX = document.getElementById("review-close-x");
     const btnSkip = document.getElementById("review-close-skip");
     const btnMark = document.getElementById("review-close-mark");
+    const title = document.getElementById("review-close-title");
+    const subtitle = document.getElementById("review-close-subtitle");
+    const body = document.getElementById("review-close-body");
+    let confirmingSkip = false;
+
+    const renderPrompt = () => {
+      confirmingSkip = false;
+      title.textContent = "Mark Area Reviewed?";
+      subtitle.textContent = "This area has not been reviewed yet.";
+      body.textContent = "Mark this area as reviewed before closing?";
+      btnSkip.textContent = "Close Without Review";
+      btnMark.textContent = "Mark Reviewed";
+    };
+
+    const renderSkipConfirm = () => {
+      confirmingSkip = true;
+      title.textContent = "Are You Sure?";
+      subtitle.textContent = "This area will stay in To Be Reviewed.";
+      body.textContent =
+        "Even if this area has recounts, you can still mark it as reviewed. Recounts will remain available in the Recounts tab.";
+      btnSkip.textContent = "Yes, Close Without Review";
+      btnMark.textContent = "Mark Reviewed Instead";
+    };
 
     const onEsc = (e) => {
-      if (e.key === "Escape") finalize(false);
+      if (e.key !== "Escape") return;
+      if (confirmingSkip) renderPrompt();
+      else renderSkipConfirm();
     };
 
     const finalize = (val) => {
@@ -3208,10 +3233,17 @@ function promptMarkReviewedBeforeClose() {
       resolve(val);
     };
 
-    const onX = () => finalize(false);
-    const onSkip = () => finalize(false);
+    const onX = () => {
+      if (confirmingSkip) renderPrompt();
+      else renderSkipConfirm();
+    };
+    const onSkip = () => {
+      if (confirmingSkip) finalize(false);
+      else renderSkipConfirm();
+    };
     const onMark = () => finalize(true);
 
+    renderPrompt();
     btnX.addEventListener("click", onX);
     btnSkip.addEventListener("click", onSkip);
     btnMark.addEventListener("click", onMark);
