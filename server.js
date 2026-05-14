@@ -154,6 +154,34 @@ let reviewStatusStoreMtimeMs = -1;
 let reportExportsBundleCache = null;
 const REPORT_EXPORTS_BUNDLE_TTL_MS = 1500;
 
+const reportEventClients = new Set();
+let reportEventVersion = 0;
+
+function sendReportEvent(res, eventName, payload) {
+  res.write(`event: ${eventName}\n`);
+  res.write(`data: ${JSON.stringify(payload || {})}\n\n`);
+}
+
+function notifyReportClients(type, payload = {}) {
+  if (reportEventClients.size === 0) return;
+
+  reportEventVersion += 1;
+  const eventPayload = {
+    type,
+    version: reportEventVersion,
+    timestamp: new Date().toISOString(),
+    ...payload,
+  };
+
+  for (const res of Array.from(reportEventClients)) {
+    try {
+      sendReportEvent(res, "report-update", eventPayload);
+    } catch {
+      reportEventClients.delete(res);
+    }
+  }
+}
+
 function normalizeJsonText(raw) {
   return String(raw || "")
     .replace(/^\uFEFF/, "")
@@ -205,6 +233,7 @@ function saveLocationActionsToDisk() {
   fs.writeFileSync(tmp, JSON.stringify(locationActionsStore, null, 2), "utf8");
   fs.renameSync(tmp, LOCATION_ACTIONS_FILE);
   invalidateReportExportsBundleCache();
+  notifyReportClients("location-actions", { file: path.basename(LOCATION_ACTIONS_FILE) });
   try {
     locationActionsStoreMtimeMs = fs.statSync(LOCATION_ACTIONS_FILE).mtimeMs;
   } catch {
@@ -275,6 +304,7 @@ function saveReviewStatusToDisk() {
   fs.writeFileSync(tmp, JSON.stringify(reviewStatusStore, null, 2), "utf8");
   fs.renameSync(tmp, REVIEW_STATUS_FILE);
   invalidateReportExportsBundleCache();
+  notifyReportClients("review-status", { file: path.basename(REVIEW_STATUS_FILE) });
   try {
     reviewStatusStoreMtimeMs = fs.statSync(REVIEW_STATUS_FILE).mtimeMs;
   } catch {
@@ -629,6 +659,7 @@ function reloadReportExportFile(filename, attempt = 0) {
     reportExportCache.delete(filename);
     reportExportFileVersions.delete(filename);
     invalidateReportExportsBundleCache();
+    notifyReportClients("report-export-removed", { file: filename });
     console.log(`Removed report export ${filename} from cache`);
     return;
   }
@@ -639,6 +670,7 @@ function reloadReportExportFile(filename, attempt = 0) {
     const stat = fs.statSync(filePath);
     reportExportFileVersions.set(filename, getFileVersionFromStat(stat));
     invalidateReportExportsBundleCache();
+    notifyReportClients("report-export", { file: filename });
     console.log(`Reloaded report export ${filename} into cache`);
   } catch (err) {
     if (attempt < 3) {
@@ -835,6 +867,7 @@ function saveChatLogToDisk() {
   const tmp = CHATLOG_FILE + ".tmp";
   fs.writeFileSync(tmp, JSON.stringify(chatLog, null, 2), "utf8");
   fs.renameSync(tmp, CHATLOG_FILE);
+  notifyReportClients("chatlog", { file: path.basename(CHATLOG_FILE) });
 }
 
 function ensureChatLogSizeLimit() {
@@ -1102,6 +1135,41 @@ app.get("/api/locations", (req, res) => {
 // near the top, after your other route definitions
 app.get("/ping", (req, res) => {
   res.sendStatus(200);
+});
+
+app.get("/api/report-events", (req, res) => {
+  res.set({
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache, no-transform",
+    Connection: "keep-alive",
+    "X-Accel-Buffering": "no",
+  });
+  res.flushHeaders?.();
+
+  reportEventClients.add(res);
+  sendReportEvent(res, "connected", {
+    type: "connected",
+    version: reportEventVersion,
+    timestamp: new Date().toISOString(),
+  });
+
+  const heartbeat = setInterval(() => {
+    try {
+      sendReportEvent(res, "heartbeat", {
+        type: "heartbeat",
+        version: reportEventVersion,
+        timestamp: new Date().toISOString(),
+      });
+    } catch {
+      clearInterval(heartbeat);
+      reportEventClients.delete(res);
+    }
+  }, 25000);
+
+  req.on("close", () => {
+    clearInterval(heartbeat);
+    reportEventClients.delete(res);
+  });
 });
 
 app.post("/api/tablet-presence/heartbeat", (req, res) => {

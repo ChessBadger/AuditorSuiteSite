@@ -605,6 +605,7 @@ const RECONNECT_PROBE_TIMEOUT_MS = 3000;
 const WRITE_REQUEST_TIMEOUT_MS = 2500;
 const TABLET_PRESENCE_HEARTBEAT_MS = 5000;
 const TABLET_PRESENCE_HEARTBEAT_TIMEOUT_MS = 2500;
+const LIVE_REPORT_REFRESH_DEBOUNCE_MS = 500;
 
 let disconnectedSince = (() => {
   const raw = localStorage.getItem(CACHE_KEYS.DISCONNECTED_SINCE);
@@ -853,10 +854,93 @@ function triggerReconnectProbe({ setUnknown = false } = {}) {
   });
 }
 
+let reportEventsSource = null;
+let liveReportRefreshTimer = null;
+let lastReportEventVersion = 0;
+let liveBundleRefreshInFlight = false;
+
+function scheduleLiveReportRefresh(detail = {}) {
+  if (serverConnectionState !== "online") return;
+
+  const version = Number(detail?.version || 0);
+  if (version > 0 && version <= lastReportEventVersion) return;
+  if (version > 0) lastReportEventVersion = version;
+
+  if (liveReportRefreshTimer) clearTimeout(liveReportRefreshTimer);
+  liveReportRefreshTimer = setTimeout(async () => {
+    liveReportRefreshTimer = null;
+    if (serverConnectionState !== "online") return;
+
+    if (String(detail?.type || "") === "chatlog") {
+      refreshChatNotification();
+      if (chatState.open && !chatState.loading) {
+        loadAndRenderChat({ scrollToBottom: isChatNearBottom() });
+      }
+      return;
+    }
+
+    if (currentView.type === "list") {
+      loadAreaList({
+        preferCache: false,
+        preserveExisting: true,
+        skipBackgroundRefresh: true,
+      });
+      return;
+    }
+
+    if (liveBundleRefreshInFlight) return;
+    liveBundleRefreshInFlight = true;
+    try {
+      await fetchJsonWithCache("/api/report-exports-bundle", CACHE_KEYS.LIST, {
+        preferCache: false,
+        timeoutMs: 3500,
+        skipBackgroundRefresh: true,
+      });
+      refreshRecountsNotification();
+      refreshQuestionsNotification();
+      refreshChatNotification();
+    } catch {
+      // Connection probes/cache handling already update the visible status.
+    } finally {
+      liveBundleRefreshInFlight = false;
+    }
+  }, LIVE_REPORT_REFRESH_DEBOUNCE_MS);
+}
+
+function connectReportEvents() {
+  if (!("EventSource" in window)) return;
+  if (reportEventsSource) return;
+
+  reportEventsSource = new EventSource("/api/report-events");
+
+  reportEventsSource.addEventListener("connected", () => {
+    markConnected();
+    flushPendingQueue();
+  });
+
+  reportEventsSource.addEventListener("report-update", (event) => {
+    markConnected();
+    let detail = {};
+    try {
+      detail = JSON.parse(event.data || "{}");
+    } catch {
+      detail = {};
+    }
+    scheduleLiveReportRefresh(detail);
+  });
+
+  reportEventsSource.onerror = () => {
+    if (serverConnectionState === "online") {
+      setServerConnectionState("unknown");
+    }
+  };
+}
+
 setInterval(updateDisconnectUI, BANNER_POLL_MS);
 window.addEventListener("online", () => {
   sendTabletPresenceHeartbeat().catch(() => {});
   triggerReconnectProbe({ setUnknown: true });
+  connectReportEvents();
 });
 window.addEventListener("offline", () => {
   // browser-level offline signal
@@ -5270,5 +5354,6 @@ flushPendingQueue();
 updateDisconnectUI();
 sendTabletPresenceHeartbeat().catch(() => {});
 if (navigator.onLine) {
+  connectReportEvents();
   triggerReconnectProbe({ setUnknown: true });
 }
