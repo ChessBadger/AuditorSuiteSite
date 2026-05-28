@@ -2484,10 +2484,10 @@ function renderActionModal() {
   }`;
   const priorDesc = String(ctx.prior_desc || "").trim();
   const locationMessage = String(ctx.location_message || "").trim();
-  const showPrior =
-    String(ctx.show_prior_desc || "") === "1" &&
-    priorDesc.length > 0 &&
-    priorDesc !== String(ctx.loc_desc || "").trim();
+  const showPrior = shouldShowPriorLocDesc({
+    prior_loc_desc: priorDesc,
+    loc_desc: ctx.loc_desc,
+  });
   const showMsg = locationMessage.length > 0;
   const noteBlocks = [];
   if (showPrior) {
@@ -2732,6 +2732,29 @@ function getPriorLocDesc(loc) {
   }
 
   return "";
+}
+
+function shouldShowPriorLocDesc(loc) {
+  const priorDesc = getPriorLocDesc(loc);
+  const currentDesc = String(loc?.loc_desc || "").trim();
+
+  if (!priorDesc || !currentDesc) return priorDesc.length > 0;
+
+  const priorCompare = priorDesc.toLocaleLowerCase();
+  const currentCompare = currentDesc.toLocaleLowerCase();
+
+  if (priorCompare === currentCompare) return false;
+
+  // prior_loc_desc is fixed-width in some exports and can be truncated.
+  // Example: "RW DRESSINGS 2 D" should not differ from "RW DRESSINGS 2 DRS".
+  if (
+    priorCompare.length < currentCompare.length &&
+    currentCompare.startsWith(priorCompare)
+  ) {
+    return false;
+  }
+
+  return true;
 }
 
 // --------------------
@@ -4671,7 +4694,7 @@ async function loadAreaGroup(groupId, members) {
           .map((l, idx) => {
             const id = `g-${escapeHtml(data.area_num ?? "area")}-loc-${idx}`;
             const priorDesc = getPriorLocDesc(l);
-            const showPrior = l?.show_prior_loc_desc === true;
+            const showPrior = shouldShowPriorLocDesc(l);
             const priorIcon = showPrior
               ? `<span class="loc-indicator loc-indicator-prior" title="Has prior location description" aria-hidden="true">↩</span>`
               : "";
@@ -4748,7 +4771,7 @@ async function loadAreaGroup(groupId, members) {
           .map((l, idx) => {
             const id = `g-${escapeHtml(data.area_num ?? "area")}-loc-${idx}`;
             const priorDesc = getPriorLocDesc(l);
-            const showPrior = l?.show_prior_loc_desc === true;
+            const showPrior = shouldShowPriorLocDesc(l);
             const priorIcon = showPrior
               ? `<span class="loc-indicator loc-indicator-prior" title="Has prior location description" aria-hidden="true">↩</span>`
               : "";
@@ -5039,7 +5062,7 @@ async function loadArea(file, options = {}) {
       .map((l, idx) => {
         const id = `loc-${idx}`;
         const priorDesc = getPriorLocDesc(l);
-        const showPrior = l?.show_prior_loc_desc === true;
+        const showPrior = shouldShowPriorLocDesc(l);
         const priorIcon = showPrior
           ? `<span class="loc-indicator loc-indicator-prior" title="Has prior location description" aria-hidden="true">↩</span>`
           : "";
@@ -5124,7 +5147,7 @@ async function loadArea(file, options = {}) {
       .map((l, idx) => {
         const id = `loc-${idx}`;
         const priorDesc = getPriorLocDesc(l);
-        const showPrior = l?.show_prior_loc_desc === true;
+        const showPrior = shouldShowPriorLocDesc(l);
         const priorIcon = showPrior
           ? `<span class="loc-indicator loc-indicator-prior" title="Has prior location description" aria-hidden="true">↩</span>`
           : "";
