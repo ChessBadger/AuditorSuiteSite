@@ -548,6 +548,13 @@ document.addEventListener("DOMContentLoaded", () => {
     return window.matchMedia(`(max-width: ${TABLET_BREAKPOINT}px)`).matches;
   }
 
+  function isEditableElement(el) {
+    return (
+      el &&
+      (el.matches("input, textarea, select") || el.isContentEditable)
+    );
+  }
+
   function ensureSidebarBackdrop() {
     if (sidebarBackdrop) return;
     sidebarBackdrop = document.createElement("div");
@@ -602,12 +609,20 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Read last state from localStorage (optional)
   syncSidebarLayout();
-  window.addEventListener("resize", syncSidebarLayout);
+  window.addEventListener("resize", () => {
+    if (isEditableElement(document.activeElement)) return;
+    syncSidebarLayout();
+  });
 
   document.addEventListener("focusin", (e) => {
     if (e.target.tagName === "INPUT") {
       e.target.select();
     }
+  });
+
+  document.addEventListener("focusout", (e) => {
+    if (!isEditableElement(e.target)) return;
+    window.setTimeout(syncSidebarLayout, 0);
   });
 
   document
